@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>管理员 — 答辩评分系统</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:"PingFang SC","Microsoft YaHei",sans-serif;}
+body{background:#f0f4fa;color:#222;line-height:1.6;padding:20px;min-height:100vh;}
+.container{max-width:1300px;margin:0 auto;}
+
+/* 顶部 */
+.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;
+  padding:10px 20px;background:white;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.06);}
+.topbar .title{font-weight:700;font-size:1.1rem;color:#1a73e8;}
+.topbar .user-info{font-size:.85rem;color:#888;}
+.topbar .btn-logout{padding:6px 16px;border:1.5px solid #ea4335;color:#ea4335;background:white;
+  border-radius:6px;cursor:pointer;font-size:.82rem;font-weight:600;}
+.topbar .btn-logout:hover{background:#fef2f2;}
+
+/* 标签导航 */
+.tabs{display:flex;gap:0;margin-bottom:0;background:white;border-radius:10px 10px 0 0;
+  box-shadow:0 2px 8px rgba(0,0,0,0.06);overflow:hidden;}
+.tab-btn{padding:13px 24px;background:transparent;border:none;font-size:.92rem;font-weight:600;
+  cursor:pointer;color:#888;border-bottom:3px solid transparent;transition:all .15s;}
+.tab-btn:hover{color:#1a73e8;background:#f8faff;}
+.tab-btn.active{color:#1a73e8;border-bottom-color:#1a73e8;background:#f0f4ff;}
+
+/* 面板 */
+.panel{background:white;border-radius:0 0 10px 10px;padding:26px 28px;margin-bottom:20px;
+  box-shadow:0 3px 12px rgba(0,0,0,0.06);}
+.tab-panel{display:none;}
+.tab-panel.active{display:block;}
+
+/* 通用 */
+input[type=text],input[type=number],input[type=password],textarea,select{
+  padding:8px 12px;border:2px solid #e0e0e0;border-radius:7px;font-size:.92rem;
+  transition:border-color .2s;}
+input:focus,textarea:focus,select:focus{outline:none;border-color:#1a73e8;}
+input[type=number]{width:80px;}
+
+.btn{padding:8px 18px;border:none;border-radius:7px;font-size:.88rem;font-weight:600;
+  cursor:pointer;transition:all .15s;white-space:nowrap;}
+.btn-blue{background:#1a73e8;color:white;}
+.btn-blue:hover{background:#0d5bb8;}
+.btn-green{background:#34a853;color:white;}
+.btn-green:hover{background:#2d8e47;}
+.btn-red{background:#ea4335;color:white;padding:4px 12px;font-size:.8rem;}
+.btn-red:hover{background:#c0392b;}
+.btn-amber{background:#f59e0b;color:white;}
+.btn-amber:hover{background:#d97706;}
+.btn-ghost{background:#f0f4ff;color:#1a73e8;border:1.5px solid #c5d8ff;}
+.btn-ghost:hover{background:#dce8ff;}
+.btn-sm{padding:4px 10px;font-size:.78rem;}
+
+/* 表格 */
+.data-table{width:100%;border-collapse:collapse;font-size:.88rem;}
+.data-table th{background:#f0f4ff;color:#1a73e8;padding:9px 12px;text-align:left;font-weight:600;}
+.data-table td{padding:8px 12px;border-bottom:1px solid #f5f5f5;}
+.data-table tr:hover td{background:#fafcff;}
+.data-table tr:last-child td{border-bottom:none;}
+
+/* 学生导入 */
+.paste-area{width:100%;height:100px;padding:10px 12px;border:2px solid #e0e0e0;border-radius:9px;
+  font-size:.85rem;font-family:monospace;resize:vertical;transition:border-color .2s;}
+.paste-area:focus{outline:none;border-color:#1a73e8;}
+.import-actions{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;}
+.file-upload{display:inline-block;cursor:pointer;}
+
+/* 评分标准编辑 */
+.criterion-card{background:#f8faff;border:1px solid #e8ecf5;border-radius:10px;
+  padding:16px 20px;margin-bottom:12px;transition:box-shadow .15s;}
+.criterion-card:hover{box-shadow:0 2px 8px rgba(0,0,0,0.06);}
+.criterion-header{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;}
+.criterion-header .c-label-input{flex:1;min-width:160px;}
+.option-row{display:flex;align-items:center;gap:8px;padding:6px 10px;margin-bottom:4px;
+  border-radius:6px;flex-wrap:wrap;}
+.option-row input[type=text]{flex:1;min-width:100px;}
+.option-row input[type=number]{width:70px;}
+
+/* 排名 */
+.rank-gold{color:#b8860b;font-weight:800;}
+.rank-silver{color:#888;font-weight:700;}
+.rank-bronze{color:#cd7f32;font-weight:700;}
+
+/* Toast */
+.toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);padding:12px 24px;border-radius:8px;
+  color:white;font-weight:600;font-size:.92rem;z-index:2000;display:none;box-shadow:0 6px 16px rgba(0,0,0,0.15);}
+.toast.error{background:#ea4335;}
+.toast.success{background:#34a853;}
+.toast.show{display:block;}
+
+.add-student-row{display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap;}
+</style>
+</head>
+<body>
+
+<div class="toast" id="toast"></div>
+
+<div class="container">
+  <div class="topbar">
+    <div class="title">📊 答辩评分管理</div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span class="user-info" id="activeClassInfo" title="学生评分页当前展示的班级"></span>
+      <span class="user-info" id="adminUser"></span>
+      <button class="btn-logout" onclick="doLogout()">退出登录</button>
+    </div>
+  </div>
+
+  <!-- 标签导航 -->
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('students')">👥 学生管理</button>
+    <button class="tab-btn" onclick="switchTab('criteria')">📝 评分标准</button>
+    <button class="tab-btn" onclick="switchTab('templates')">📋 评分模板</button>
+    <button class="tab-btn" onclick="switchTab('results')">🏆 成绩汇总</button>
+    <button class="tab-btn" onclick="switchTab('settings')">⚙️ 系统设置</button>
+  </div>
+
+  <!-- 学生管理 -->
+  <div class="panel">
+    <div id="tab-students" class="tab-panel active">
+      <!-- 班级选择 -->
+      <div style="display:flex;gap:12px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
+        <label for="classSelect" style="font-weight:600;color:#444;">选择班级：</label>
+        <select id="classSelect" onchange="onClassChange()" style="min-width:200px;">
+          <option value="">全部班级</option>
+        </select>
+        <button class="btn btn-ghost btn-sm" onclick="addClassDialog()">➕ 新建班级</button>
+        <button class="btn btn-red btn-sm" onclick="deleteCurrentClass()" style="display:none;" id="deleteClassBtn">🗑 删除此班级</button>
+      </div>
+
+      <!-- 录入目标提示：导入/添加的学生归入当前选中的班级 -->
+      <div id="importTargetHint" style="margin-bottom:16px;font-size:.86rem;border-radius:8px;padding:9px 14px;">
+        📥 导入 / 手动添加的学生将归入：<strong id="importTargetName">—</strong>
+      </div>
+
+      <div style="display:flex;gap:24px;flex-wrap:wrap;">
+        <!-- 粘贴导入 -->
+        <div style="flex:1;min-width:300px;">
+          <h4 style="margin-bottom:10px;color:#444;">粘贴导入</h4>
+          <textarea class="paste-area" id="pasteInput" placeholder="JSON：[{&quot;name&quot;:&quot;张三&quot;,&quot;group&quot;:1}, ...]&#10;CSV：姓名,组号（每行一条）"></textarea>
+          <div class="import-actions">
+            <button class="btn btn-blue" onclick="parsePaste()">解析并导入</button>
+            <button class="btn btn-ghost" onclick="document.getElementById('pasteInput').value=''">清空</button>
+          </div>
+          <div style="font-size:.78rem;color:#aaa;margin-top:6px;">
+            支持 JSON 数组 / CSV 格式，粘贴后点击导入
+          </div>
+        </div>
+
+        <!-- 文件上传 -->
+        <div style="flex:1;min-width:220px;">
+          <h4 style="margin-bottom:10px;color:#444;">上传文件</h4>
+          <input type="file" id="rosterFile" accept=".json,.csv" onchange="handleFile(event)" style="display:none;">
+          <label for="rosterFile" style="display:block;border:2px dashed #b3c9f5;border-radius:10px;
+            padding:30px 20px;text-align:center;cursor:pointer;transition:border-color .2s;background:#f8faff;"
+            onmouseenter="this.style.borderColor='#1a73e8'"
+            onmouseleave="this.style.borderColor='#b3c9f5'">
+            <div style="font-size:1.8rem;">📂</div>
+            <strong>点击上传名单文件</strong>
+            <p style="font-size:.82rem;color:#888;">支持 .json / .csv</p>
+          </label>
+        </div>
+      </div>
+
+      <!-- 手动添加 -->
+      <div class="add-student-row">
+        <span style="font-weight:600;color:#444;">手动添加：</span>
+        <input type="text" id="addName" placeholder="姓名" aria-label="学生姓名">
+        <input type="number" id="addGroup" placeholder="组号" min="1" aria-label="组号">
+        <button class="btn btn-green" onclick="addStudent()">＋ 添加</button>
+      </div>
+
+      <!-- 名单表格 -->
+      <div style="margin-top:16px;border:1px solid #eef0f5;border-radius:8px;overflow:hidden;">
+        <div style="overflow-x:auto;">
+          <table class="data-table">
+            <thead><tr><th>序号</th><th>姓名</th><th>组别</th><th>操作</th></tr></thead>
+            <tbody id="studentTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div style="margin-top:8px;color:#888;font-size:.85rem;" id="studentCount"></div>
+    </div>
+
+    <!-- 评分标准 -->
+    <div id="tab-criteria" class="tab-panel">
+      <!-- 编辑作用域：哪个班级的评分表 -->
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:14px 16px;background:#eef4ff;border:1px solid #d4e2ff;border-radius:10px;">
+        <label for="criteriaClassSelect" style="font-weight:700;color:#1a73e8;font-size:.92rem;">✏️ 正在编辑：</label>
+        <select id="criteriaClassSelect" onchange="onCriteriaClassChange()" style="min-width:240px;">
+          <option value="">全局默认（新建班级的初始模板）</option>
+        </select>
+        <span style="font-size:.8rem;color:#888;">每个班级各有一套评分表，互不影响</span>
+      </div>
+      <!-- 从模板加载 -->
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:18px;padding:14px 16px;background:#f8faff;border:1px solid #e8ecf5;border-radius:10px;">
+        <label for="criteriaTplSelect" style="font-weight:600;color:#444;font-size:.9rem;">📋 从模板加载：</label>
+        <select id="criteriaTplSelect" style="min-width:220px;">
+          <option value="">— 选择一个模板 —</option>
+        </select>
+        <button class="btn btn-ghost btn-sm" onclick="applyTemplateToEditor()">📂 加载到编辑器</button>
+        <span style="font-size:.8rem;color:#aaa;">加载后可修改，记得点下方"保存评分标准"生效</span>
+      </div>
+      <div id="criteriaContainer"></div>
+      <button class="btn btn-blue" onclick="addCriterion()" style="margin-top:12px;">＋ 添加评分维度</button>
+      <div style="margin-top:16px;">
+        <button class="btn btn-green" onclick="saveCriteria()">💾 保存评分标准</button>
+      </div>
+    </div>
+
+    <!-- 评分标准模板 -->
+    <div id="tab-templates" class="tab-panel">
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;">
+        <h3 style="color:#444;">评分标准模板</h3>
+        <button class="btn btn-blue btn-sm" onclick="saveCurrentAsTemplate()">💾 将当前标准保存为新模板</button>
+      </div>
+      <div style="display:flex;gap:24px;flex-wrap:wrap;">
+        <!-- 模板列表 -->
+        <div style="flex:1;min-width:280px;">
+          <h4 style="margin-bottom:10px;color:#444;">已保存的模板</h4>
+          <div id="templateList"></div>
+        </div>
+        <!-- 保存新模板 -->
+        <div style="flex:1;min-width:280px;">
+          <h4 style="margin-bottom:10px;color:#444;">保存为新模板</h4>
+          <div style="display:flex;gap:8px;margin-bottom:12px;">
+            <input type="text" id="templateName" placeholder="模板名称（如：2026春季班标准）" style="flex:1;">
+            <button class="btn btn-green btn-sm" onclick="saveNewTemplate()">保存</button>
+          </div>
+          <div style="font-size:.82rem;color:#aaa;">
+            保存当前评分标准为一个模板，下次使用时可直接加载。
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 成绩汇总 -->
+    <div id="tab-results" class="tab-panel">
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
+        <button class="btn btn-blue" onclick="loadResults()">🔄 刷新数据</button>
+        <a id="csvExportLink" href="/api/results/export" class="btn btn-amber">📥 导出 CSV</a>
+      </div>
+      <div id="resultsContent"></div>
+    </div>
+
+    <!-- 系统设置 -->
+    <div id="tab-settings" class="tab-panel">
+      <h4 style="color:#444;margin-bottom:16px;">修改管理员密码</h4>
+      <div style="max-width:400px;">
+        <div class="form-group" style="margin-bottom:12px;">
+          <label for="oldPw" style="font-weight:600;font-size:.88rem;">旧密码</label>
+          <input type="password" id="oldPw" autocomplete="current-password" style="width:100%;">
+        </div>
+        <div class="form-group" style="margin-bottom:12px;">
+          <label for="newPw" style="font-weight:600;font-size:.88rem;">新密码</label>
+          <input type="password" id="newPw" autocomplete="new-password" style="width:100%;">
+        </div>
+        <div class="form-group" style="margin-bottom:12px;">
+          <label for="newPw2" style="font-weight:600;font-size:.88rem;">确认新密码</label>
+          <input type="password" id="newPw2" autocomplete="new-password" style="width:100%;">
+        </div>
+        <button class="btn btn-blue" onclick="changePassword()">修改密码</button>
+        <div style="font-size:.78rem;color:#aaa;margin-top:10px;">
+          修改后立即生效，请牢记新密码。
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// 全局"当前班级"——所有标签页（学生管理 / 评分标准 / 成绩汇总）共享同一选择
+let currentClass = '';
+
+// ========== 鉴权 ==========
+async function checkAuth() {
+  try {
+    const res = await fetch('/api/admin/check');
+    const data = await res.json();
+    if (!data.logged_in) {
+      window.location.href = '/admin/login';
+      return;
+    }
+    document.getElementById('adminUser').textContent = '👤 ' + data.username;
+  } catch(e) {
+    window.location.href = '/admin/login';
+  }
+}
+
+async function doLogout() {
+  await fetch('/api/admin/logout', {method:'POST'});
+  window.location.href = '/admin/login';
+}
+
+// ========== 标签切换 ==========
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelector(`.tab-btn[onclick*="${name}"]`).classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+  // 各标签页打开时，把下拉框同步到共享的"当前班级"
+  if (name === 'students') { refreshClasses(currentClass).then(() => { loadStudents(); updateImportHint(); }); }
+  if (name === 'criteria') { loadCriteriaClasses(currentClass).then(() => loadCriteria()); }
+  if (name === 'templates') loadTemplates();
+  if (name === 'results') { refreshClasses(currentClass).then(() => loadResults()); }
+}
+
+// ========== 学生管理 ==========
+async function loadStudents() {
+  try {
+    const cls = document.getElementById('classSelect').value;
+    const encoded = encodeURIComponent(cls).replace(/%20/g, '+');
+    const url = cls ? '/api/students?class_name=' + encoded : '/api/students';
+    const res = await fetch(url);
+    const data = await res.json();
+    const students = data.students || [];
+    const tbody = document.getElementById('studentTableBody');
+    if (!students.length) {
+      tbody.innerHTML = '<tr><td colspan="4" style="color:#aaa;text-align:center;padding:20px;">暂无学生，请导入名单</td></tr>';
+    } else {
+      tbody.innerHTML = students.map((s, i) =>
+        `<tr><td style="color:#aaa;">${i+1}</td><td><strong>${escHtml(s.name)}</strong></td><td>第${toCN(s.group_number)}组</td><td><button class="btn btn-red" onclick="deleteStudent(${s.id})">删除</button></td></tr>`
+      ).join('');
+    }
+    document.getElementById('studentCount').textContent = students.length ? `共 ${students.length} 名学生` : '';
+  } catch(e) {
+    showToast('❌ 加载学生列表失败', 'error');
+  }
+}
+
+async function refreshClasses(selectName) {
+  try {
+    const res = await fetch('/api/classes');
+    const data = await res.json();
+    const sel = document.getElementById('classSelect');
+    // 优先选中指定班级，否则保留当前选择
+    const target = (selectName !== undefined) ? selectName : sel.value;
+    sel.innerHTML = '<option value="">全部班级</option>';
+    (data.classes || []).forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.name;
+      opt.textContent = `${c.name} (${c.count}人)`;
+      if (c.name === target) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    // 显示/隐藏删除班级按钮
+    const delBtn = document.getElementById('deleteClassBtn');
+    delBtn.style.display = (sel.value && sel.value !== '') ? '' : 'none';
+    updateImportHint();
+  } catch(e) {}
+}
+
+function onClassChange() {
+  const sel = document.getElementById('classSelect');
+  const cls = sel.value;
+  currentClass = cls;  // 同步共享的"当前班级"
+  publishActiveClass(cls);  // 学生评分页随之切换到该班级
+  loadStudents();
+  updateImportHint();
+  const delBtn = document.getElementById('deleteClassBtn');
+  if (cls && cls !== '') delBtn.style.display = '';
+  else delBtn.style.display = 'none';
+  // Update CSV export link
+  const csvLink = document.getElementById('csvExportLink');
+  const encoded = encodeURIComponent(cls).replace(/%20/g, '+');
+  csvLink.href = cls ? '/api/results/export?class_name=' + encoded : '/api/results/export';
+}
+
+// 评分标准页切换编辑作用域
+function onCriteriaClassChange() {
+  currentClass = document.getElementById('criteriaClassSelect').value;
+  publishActiveClass(currentClass);
+  loadCriteria();
+}
+
+// 更新"录入目标班级"提示：导入/添加的学生归入当前选中的班级
+function updateImportHint() {
+  const cls = document.getElementById('classSelect').value;
+  const box = document.getElementById('importTargetHint');
+  const name = document.getElementById('importTargetName');
+  if (!box || !name) return;
+  if (cls) {
+    name.textContent = cls;
+    box.style.background = '#eef4ff';
+    box.style.border = '1px solid #d4e2ff';
+    box.style.color = '#1a73e8';
+  } else {
+    name.textContent = '未选择班级（请先在上方选择或新建班级，否则学生不归入任何班级）';
+    box.style.background = '#fff7ed';
+    box.style.border = '1px solid #fed7aa';
+    box.style.color = '#c2410c';
+  }
+}
+
+// 把"当前班级"发布到服务器，学生评分页将展示该班级
+async function publishActiveClass(cls) {
+  try {
+    await fetch('/api/active-class', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({class_name: cls || ''})
+    });
+  } catch(e) {}
+  showActiveClass(cls);
+}
+
+// 顶部显示学生评分页当前班级
+function showActiveClass(cls) {
+  const el = document.getElementById('activeClassInfo');
+  if (el) el.textContent = '🎯 评分页班级：' + (cls ? cls : '未指定');
+}
+
+async function loadActiveClass() {
+  try {
+    const data = await (await fetch('/api/active-class')).json();
+    showActiveClass(data.class_name || '');
+  } catch(e) {}
+}
+
+async function addClassDialog() {
+  const name = prompt('请输入新班级名称：');
+  if (!name || !name.trim()) return;
+  const clean = name.trim();
+  try {
+    const res = await fetch('/api/classes', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name: clean})
+    });
+    const data = await res.json();
+    if (!data.ok) { showToast('❌ ' + (data.error||'创建失败'), 'error'); return; }
+    // 把"当前班级"切到新建的班级，所有标签页随之同步
+    currentClass = clean;
+    await refreshClasses(clean);
+    onClassChange();
+    showToast('✅ 已创建班级 "' + clean + '"（已生成独立评分表），可导入学生', 'success');
+  } catch(e) {
+    showToast('❌ 创建失败', 'error');
+  }
+}
+
+async function deleteCurrentClass() {
+  const cls = document.getElementById('classSelect').value;
+  if (!cls) return;
+  if (!confirm('确认删除班级 "' + cls + '" 及其所有学生数据和评分记录？此操作不可恢复！')) return;
+  try {
+    const encoded = encodeURIComponent(cls).replace(/%20/g, '+');
+    const res = await fetch('/api/classes/' + encoded, {method:'DELETE'});
+    if (res.ok) {
+      showToast('✅ 已删除班级 "' + cls + '"', 'success');
+      currentClass = '';  // 删除后回到"全部/全局默认"
+      publishActiveClass('');
+      document.getElementById('classSelect').value = '';
+      loadStudents();
+      updateImportHint();
+      refreshClasses('');
+    } else {
+      showToast('❌ 删除失败', 'error');
+    }
+  } catch(e) {
+    showToast('❌ 删除失败', 'error');
+  }
+}
+
+async function deleteStudent(id) {
+  if (!confirm('确认删除该学生？')) return;
+  try {
+    const res = await fetch('/api/students/' + id, {method:'DELETE'});
+    if (res.ok) {
+      showToast('✅ 已删除', 'success');
+      loadStudents();
+    }
+  } catch(e) {
+    showToast('❌ 删除失败', 'error');
+  }
+}
+
+async function addStudent() {
+  const name = document.getElementById('addName').value.trim();
+  const group = parseInt(document.getElementById('addGroup').value);
+  if (!name) { alert('请输入姓名'); return; }
+  if (!group || group < 1) { alert('请输入组号'); return; }
+
+  // 关联到当前选中的班级
+  const cls = document.getElementById('classSelect').value;
+  try {
+    const res = await fetch('/api/students/import', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({students:[{name,group}], class_name: cls || ''})
+    });
+    const data = await res.json();
+    if (data.ok) {
+      document.getElementById('addName').value = '';
+      document.getElementById('addGroup').value = '';
+      showToast('✅ 添加 ' + data.added + ' 名学生', 'success');
+      loadStudents();
+      refreshClasses();
+    }
+  } catch(e) {
+    showToast('❌ 添加失败', 'error');
+  }
+}
+
+// ========== 粘贴导入 ==========
+function parsePaste() {
+  const text = document.getElementById('pasteInput').value.trim();
+  if (!text) { showToast('❌ 请先粘贴内容', 'error'); return; }
+  let parsed = [];
+
+  if (text.startsWith('[')) {
+    try { parsed = JSON.parse(text); }
+    catch(e) { showToast('❌ JSON 格式无效', 'error'); return; }
+  } else {
+    // CSV
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    let start = 0;
+    if (lines[0].toLowerCase().includes('name') || lines[0].includes('姓名')) start = 1;
+    for (let i = start; i < lines.length; i++) {
+      const cols = lines[i].split(/[,|\t]/).map(c => c.trim().replace(/^"|"$/g,''));
+      if (cols[0] && parseInt(cols[1])) parsed.push({name:cols[0], group:parseInt(cols[1])});
+    }
+  }
+
+  if (!parsed.length) { showToast('❌ 未解析到有效数据', 'error'); return; }
+  doImport(parsed);
+  document.getElementById('pasteInput').value = '';
+}
+
+async function handleFile(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async function(ev) {
+    const text = ev.target.result;
+    let parsed;
+    if (file.name.endsWith('.json')) {
+      parsed = JSON.parse(text);
+    } else {
+      parsed = [];
+      const lines = text.split(/\r?\n/).filter(l => l.trim());
+      let start = lines[0].toLowerCase().includes('name')||lines[0].includes('姓名') ? 1 : 0;
+      for (let i = start; i < lines.length; i++) {
+        const cols = lines[i].split(/[,|\t]/).map(c => c.trim().replace(/^"|"$/g,''));
+        if (cols[0] && parseInt(cols[1])) parsed.push({name:cols[0],group:parseInt(cols[1])});
+      }
+    }
+    if (!parsed.length) { showToast('❌ 未解析到有效数据', 'error'); return; }
+    doImport(parsed);
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+}
+
+async function doImport(data) {
+  try {
+    // 关联到当前选中的班级
+    const cls = document.getElementById('classSelect').value;
+    const res = await fetch('/api/students/import', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({students:data, class_name: cls || ''})
+    });
+    const result = await res.json();
+    if (result.ok) {
+      const msg = '✅ 新增 ' + result.added + ' 名' + (result.skipped > 0 ? '，跳过重复 ' + result.skipped + ' 条' : '');
+      showToast(msg, 'success');
+      loadStudents();
+      refreshClasses();
+    }
+  } catch(e) {
+    showToast('❌ 导入失败', 'error');
+  }
+}
+
+// ========== 评分标准 ==========
+let criteriaData = [];
+
+async function loadCriteria() {
+  try {
+    const cls = document.getElementById('criteriaClassSelect').value;
+    const res = await fetch('/api/criteria?class_name=' + encodeURIComponent(cls));
+    const data = await res.json();
+    criteriaData = data.criteria || [];
+    renderCriteria();
+    loadCriteriaTemplateOptions();
+  } catch(e) {
+    showToast('❌ 加载评分标准失败', 'error');
+  }
+}
+
+// 填充"评分标准"页的编辑作用域下拉（全局默认 + 各班级）
+// selectName 给定则选中它，否则保留当前选择
+async function loadCriteriaClasses(selectName) {
+  try {
+    const res = await fetch('/api/classes');
+    const data = await res.json();
+    const sel = document.getElementById('criteriaClassSelect');
+    const target = (selectName !== undefined) ? selectName : sel.value;
+    sel.innerHTML = '<option value="">全局默认（新建班级的初始模板）</option>';
+    (data.classes || []).forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.name;
+      opt.textContent = `${c.name} (${c.count}人)`;
+      if (c.name === target) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  } catch(e) {}
+}
+
+// 填充"评分标准"页顶部的模板下拉框
+async function loadCriteriaTemplateOptions() {
+  try {
+    const res = await fetch('/api/templates');
+    const data = await res.json();
+    const sel = document.getElementById('criteriaTplSelect');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— 选择一个模板 —</option>';
+    (data.templates || []).forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.id;
+      opt.textContent = t.name;
+      sel.appendChild(opt);
+    });
+  } catch(e) {}
+}
+
+// 把选中的模板加载到编辑器（覆盖当前内容，需确认）
+async function applyTemplateToEditor() {
+  const sel = document.getElementById('criteriaTplSelect');
+  const id = sel.value;
+  if (!id) { showToast('❌ 请先选择一个模板', 'error'); return; }
+  const tplName = sel.options[sel.selectedIndex].textContent;
+  if (criteriaData.length && !confirm('加载模板「' + tplName + '」会覆盖当前编辑器中的内容，确定继续？')) return;
+  try {
+    const res = await fetch('/api/templates/' + id);
+    const data = await res.json();
+    criteriaData = data.criteria || [];
+    renderCriteria();
+    showToast('✅ 已加载模板「' + tplName + '」，修改后请点"保存评分标准"', 'success');
+  } catch(e) {
+    showToast('❌ 加载失败', 'error');
+  }
+}
+
+function renderCriteria() {
+  const container = document.getElementById('criteriaContainer');
+  if (!criteriaData.length) {
+    container.innerHTML = '<p style="color:#aaa;text-align:center;padding:20px;">暂无评分维度，请添加</p>';
+    return;
+  }
+
+  container.innerHTML = criteriaData.map((cr, ci) => `
+    <div class="criterion-card">
+      <div class="criterion-header">
+        <strong style="color:#1a73e8;">维度 ${ci+1}.</strong>
+        <input type="text" class="c-label-input" value="${escHtml(cr.label||'')}"
+          oninput="criteriaData[${ci}].label=this.value" placeholder="维度名称">
+        <button class="btn btn-red btn-sm" onclick="deleteCriterion(${cr.id}, ${ci})">删除维度</button>
+      </div>
+      <div style="font-size:.82rem;color:#888;margin-bottom:8px;">评分等级选项：</div>
+      ${(cr.options||[]).map((opt, oi) => `
+        <div class="option-row">
+          <span style="min-width:40px;font-size:.82rem;">等级${oi+1}</span>
+          <input type="text" value="${escHtml(opt.label||'')}" placeholder="等级名（如：优秀）"
+            oninput="criteriaData[${ci}].options[${oi}].label=this.value">
+          <input type="text" value="${escHtml(opt.description||'')}" placeholder="描述（可选）"
+            oninput="criteriaData[${ci}].options[${oi}].description=this.value" style="flex:2;">
+          <span style="font-size:.82rem;">分值</span>
+          <input type="number" value="${opt.score||0}" min="0"
+            oninput="criteriaData[${ci}].options[${oi}].score=parseInt(this.value)||0">
+          <button class="btn btn-red btn-sm" onclick="deleteOption(${ci},${oi})">✕</button>
+        </div>
+      `).join('')}
+      <button class="btn btn-ghost btn-sm" onclick="addOption(${ci})" style="margin-top:6px;">＋ 添加等级</button>
+    </div>
+  `).join('');
+}
+
+function addCriterion() {
+  criteriaData.push({
+    id: null,
+    label: '新维度',
+    sort_order: criteriaData.length + 1,
+    options: [
+      {label:'优秀',description:'',score:4,sort_order:4},
+      {label:'良好',description:'',score:3,sort_order:3},
+      {label:'一般',description:'',score:2,sort_order:2},
+      {label:'较差',description:'',score:1,sort_order:1},
+    ]
+  });
+  renderCriteria();
+}
+
+function deleteCriterion(id, idx) {
+  if (!confirm('确认删除该评分维度？')) return;
+  if (id) {
+    fetch('/api/criteria/' + id, {method:'DELETE'}).then(() => loadCriteria());
+  } else {
+    criteriaData.splice(idx, 1);
+    renderCriteria();
+  }
+}
+
+function addOption(ci) {
+  if (!criteriaData[ci].options) criteriaData[ci].options = [];
+  criteriaData[ci].options.push({label:'',description:'',score:0,sort_order:0});
+  renderCriteria();
+}
+
+function deleteOption(ci, oi) {
+  criteriaData[ci].options.splice(oi, 1);
+  renderCriteria();
+}
+
+async function saveCriteria() {
+  // 验证
+  for (const cr of criteriaData) {
+    if (!cr.label.trim()) { showToast('❌ 请填写所有维度名称', 'error'); return; }
+    for (const opt of (cr.options||[])) {
+      if (!opt.label.trim()) { showToast('❌ 请填写所有等级名称', 'error'); return; }
+    }
+  }
+
+  try {
+    const cls = document.getElementById('criteriaClassSelect').value;
+    const res = await fetch('/api/criteria', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({criteria: criteriaData, class_name: cls})
+    });
+    const data = await res.json();
+    if (data.ok) {
+      const scope = cls ? ('班级「' + cls + '」') : '全局默认';
+      showToast('✅ ' + scope + '的评分标准已保存', 'success');
+      loadCriteria(); // Reload to get proper IDs
+    }
+  } catch(e) {
+    showToast('❌ 保存失败', 'error');
+  }
+}
+
+// ========== 评分标准模板 ==========
+async function loadTemplates() {
+  try {
+    const res = await fetch('/api/templates');
+    const data = await res.json();
+    const list = document.getElementById('templateList');
+    if (!data.templates || !data.templates.length) {
+      list.innerHTML = '<p style="color:#aaa;text-align:center;padding:20px;">暂无模板</p>';
+      return;
+    }
+    list.innerHTML = data.templates.map(t => `
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid #e8ecf5;border-radius:8px;margin-bottom:6px;">
+        <span style="flex:1;font-weight:600;">${escHtml(t.name)}</span>
+        <span style="font-size:.78rem;color:#aaa;">${(t.created_at||'').split('T')[0]}</span>
+        <button class="btn btn-blue btn-sm" onclick="loadTemplate(${t.id})">加载</button>
+        <button class="btn btn-red btn-sm" onclick="deleteTemplate(${t.id})">删除</button>
+      </div>
+    `).join('');
+  } catch(e) {
+    showToast('❌ 加载模板失败', 'error');
+  }
+}
+
+async function saveCurrentAsTemplate() {
+  const name = prompt('请输入模板名称：');
+  if (!name || !name.trim()) return;
+  await doSaveTemplate(name.trim());
+}
+
+async function saveNewTemplate() {
+  const name = document.getElementById('templateName').value.trim();
+  if (!name) { showToast('❌ 请输入模板名称', 'error'); return; }
+  await doSaveTemplate(name);
+  document.getElementById('templateName').value = '';
+}
+
+async function doSaveTemplate(name) {
+  // 验证
+  for (const cr of criteriaData) {
+    if (!cr.label.trim()) { showToast('❌ 请填写所有维度名称', 'error'); return; }
+    for (const opt of (cr.options||[])) {
+      if (!opt.label.trim()) { showToast('❌ 请填写所有等级名称', 'error'); return; }
+    }
+  }
+  try {
+    const res = await fetch('/api/templates', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name, criteria: criteriaData})
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast('✅ 模板 "' + name + '" 已保存', 'success');
+      loadTemplates();
+    }
+  } catch(e) {
+    showToast('❌ 保存失败', 'error');
+  }
+}
+
+async function loadTemplate(id) {
+  try {
+    const res = await fetch('/api/templates/' + id);
+    const data = await res.json();
+    criteriaData = data.criteria || [];
+    // 切换到"评分标准"标签（手动切，避免 loadCriteria 重新拉取覆盖刚加载的模板）
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.querySelector('.tab-btn[onclick*="criteria"]').classList.add('active');
+    document.getElementById('tab-criteria').classList.add('active');
+    await loadCriteriaClasses(currentClass);   // 填充编辑作用域下拉并同步到当前班级（作为保存目标）
+    renderCriteria();
+    loadCriteriaTemplateOptions();
+    showToast('✅ 模板已加载到"评分标准"，选择目标班级后点"保存评分标准"', 'success');
+  } catch(e) {
+    showToast('❌ 加载失败', 'error');
+  }
+}
+
+async function deleteTemplate(id) {
+  if (!confirm('确认删除此模板？')) return;
+  try {
+    const res = await fetch('/api/templates/' + id, {method:'DELETE'});
+    if (res.ok) {
+      showToast('✅ 已删除', 'success');
+      loadTemplates();
+    }
+  } catch(e) {
+    showToast('❌ 删除失败', 'error');
+  }
+}
+
+// ========== 成绩汇总 ==========
+async function loadResults() {
+  try {
+    const cls = document.getElementById('classSelect').value;
+    const encoded = encodeURIComponent(cls).replace(/%20/g, '+');
+    const url = cls ? '/api/results?class_name=' + encoded : '/api/results';
+    const res = await fetch(url);
+    const data = await res.json();
+    const criteria = data.criteria || [];
+
+    let html = '';
+
+    if (!data.ranked || !data.ranked.length) {
+      html += '<p style="color:#aaa;text-align:center;padding:40px;">暂无评分数据</p>';
+    } else {
+      // 排名
+      html += '<h3 style="margin-bottom:14px;">🏆 总排名</h3>';
+      html += '<div style="overflow-x:auto;margin-bottom:24px;">';
+      html += '<table class="data-table"><thead><tr>';
+      html += '<th>排名</th><th>组号</th><th>收到评分数</th>';
+      criteria.forEach(c => { html += '<th>' + escHtml(c.label) + '</th>'; });
+      html += '<th>总平均分</th><th>详情</th></tr></thead><tbody>';
+
+      data.ranked.forEach(r => {
+        const cls = data.groups[r.group_number]?.scores?.[0]?.scorer_class || '';
+        const clsTag = cls ? ` <span style="font-size:.78rem;color:#aaa;">(${escHtml(cls)})</span>` : '';
+        const rankIcon = r.rank === 1 ? '🥇' : r.rank === 2 ? '🥈' : r.rank === 3 ? '🥉' : r.rank;
+        const rankClass = r.rank === 1 ? 'rank-gold' : r.rank === 2 ? 'rank-silver' : r.rank === 3 ? 'rank-bronze' : '';
+        html += `<tr><td class="${rankClass}">${rankIcon}</td><td><strong>第${toCN(r.group_number)}组</strong>${clsTag}</td><td>${r.score_count}</td>`;
+
+        // 各维度平均分
+        const groupData = data.groups[r.group_number];
+        criteria.forEach(c => {
+          const cScores = [];
+          if (groupData && groupData.scores) {
+            groupData.scores.forEach(s => {
+              (s.criteria_scores||[]).forEach(cs => {
+                if (cs.criterion_id === c.id) cScores.push(cs.score);
+              });
+            });
+          }
+          const avg = cScores.length > 0 ? (cScores.reduce((a,b)=>a+b,0) / cScores.length).toFixed(1) : '—';
+          html += `<td>${avg}</td>`;
+        });
+
+        html += `<td><strong>${r.avg_total}</strong></td>`;
+        html += `<td><button class="btn btn-ghost btn-sm" onclick="toggleGroupDetail(${r.group_number})">查看明细 ▼</button></td>`;
+        html += '</tr>';
+        html += `<tr id="detail-row-${r.group_number}" style="display:none;"><td colspan="${6+criteria.length}">`;
+        html += '<div id="detail-' + r.group_number + '" style="padding:8px 0;"></div>';
+        html += '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+
+    document.getElementById('resultsContent').innerHTML = html;
+  } catch(e) {
+    document.getElementById('resultsContent').innerHTML = '<p style="color:#ea4335;">加载失败，请刷新重试</p>';
+  }
+}
+
+async function toggleGroupDetail(groupNum) {
+  const row = document.getElementById('detail-row-' + groupNum);
+  const detailDiv = document.getElementById('detail-' + groupNum);
+
+  if (row.style.display !== 'none') {
+    row.style.display = 'none';
+    return;
+  }
+
+  try {
+    const cls = document.getElementById('classSelect').value;
+    const encoded = encodeURIComponent(cls).replace(/%20/g, '+');
+    const url = cls ? '/api/results/group/' + groupNum + '?class_name=' + encoded : '/api/results/group/' + groupNum;
+    const res = await fetch(url);
+    const data = await res.json();
+    const criteria = data.criteria || [];
+
+    let html = '<strong>评分明细：</strong><br>';
+    html += '<table class="data-table" style="margin-top:6px;"><thead><tr>';
+    html += '<th>评分人</th><th>所在组</th><th>所在班级</th>';
+    criteria.forEach(c => { html += '<th>' + escHtml(c.label) + '</th>'; });
+    html += '<th>总分</th><th>评语</th><th>时间</th></tr></thead><tbody>';
+
+    (data.scores||[]).forEach(s => {
+      html += `<tr><td>${escHtml(s.scorer_name)}</td><td>第${toCN(s.scorer_group)}组</td><td style="font-size:.82rem;">${escHtml(s.scorer_class||'—')}</td>`;
+      criteria.forEach(c => {
+        const cs = (s.criteria_scores||[]).find(cs => cs.criterion_id === c.id);
+        html += `<td>${cs ? cs.score : '—'}</td>`;
+      });
+      html += `<td><strong>${s.total_score}</strong></td>`;
+      html += `<td style="font-size:.82rem;">${escHtml(s.comment||'')}</td>`;
+      html += `<td style="font-size:.78rem;color:#aaa;">${(s.created_at||'').replace('T',' ')}</td></tr>`;
+    });
+
+    html += '</tbody></table>';
+
+    // 平均分
+    if ((data.scores||[]).length > 0) {
+      html += '<div style="margin-top:8px;font-weight:600;font-size:.85rem;">各维度平均：';
+      criteria.forEach(c => {
+        const vals = (data.scores||[]).map(s => {
+          const cs = (s.criteria_scores||[]).find(cs => cs.criterion_id === c.id);
+          return cs ? cs.score : null;
+        }).filter(v => v !== null);
+        const avg = vals.length > 0 ? (vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(1) : '—';
+        html += ' ' + escHtml(c.label) + ' ' + avg + ' | ';
+      });
+      html += '</div>';
+    }
+
+    detailDiv.innerHTML = html;
+    row.style.display = '';
+  } catch(e) {
+    detailDiv.innerHTML = '<span style="color:#ea4335;">加载明细失败</span>';
+    row.style.display = '';
+  }
+}
+
+// ========== 系统设置 ==========
+async function changePassword() {
+  const oldPw = document.getElementById('oldPw').value;
+  const newPw = document.getElementById('newPw').value;
+  const newPw2 = document.getElementById('newPw2').value;
+
+  if (!oldPw || !newPw) { showToast('❌ 请填写完整', 'error'); return; }
+  if (newPw !== newPw2) { showToast('❌ 两次新密码不一致', 'error'); return; }
+  if (newPw.length < 4) { showToast('❌ 新密码至少4位', 'error'); return; }
+
+  try {
+    const res = await fetch('/api/admin/change-password', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({old_password:oldPw, new_password:newPw})
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast('✅ 密码已修改', 'success');
+      document.getElementById('oldPw').value = '';
+      document.getElementById('newPw').value = '';
+      document.getElementById('newPw2').value = '';
+    } else {
+      showToast('❌ ' + (data.error||'修改失败'), 'error');
+    }
+  } catch(e) {
+    showToast('❌ 修改失败', 'error');
+  }
+}
+
+// ========== 工具 ==========
+const cn = ['','一','二','三','四','五','六','七','八','九','十','十一','十二','十三','十四','十五'];
+function toCN(n){ return cn[n]||n; }
+function escHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'toast ' + type + ' show';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(()=>{t.classList.remove('show')}, 3000);
+}
+
+// ========== 启动 ==========
+checkAuth();
+loadStudents();
+refreshClasses();
+loadActiveClass();
+</script>
+</body>
+</html>

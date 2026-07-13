@@ -1,0 +1,8 @@
+fastapi>=0.100.0
+uvicorn>=0.23.0
+
+# 运行端到端测试 (test_e2e.py) 需要：
+httpx>=0.24.0
+
+# 仅在使用 --db mysql 时需要（默认 SQLite 无需安装）：
+# pymysql>=1.0.0

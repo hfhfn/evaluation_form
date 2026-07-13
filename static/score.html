@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>实战答辩评分表</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:"PingFang SC","Microsoft YaHei",sans-serif;}
+body{background:#f0f4fa;color:#222;line-height:1.6;padding:20px;min-height:100vh;}
+.container{max-width:1200px;margin:0 auto;}
+header{text-align:center;margin-bottom:28px;padding:24px 20px;
+  background:linear-gradient(135deg,#1a73e8,#6c5ce7);color:white;
+  border-radius:14px;box-shadow:0 6px 20px rgba(26,115,232,0.25);}
+header h1{font-size:1.8rem;margin-bottom:4px;}
+header p{opacity:.85;font-size:.95rem;}
+
+/* 身份输入 */
+.id-picker{background:white;border-radius:12px;padding:20px 24px;margin-bottom:22px;
+  box-shadow:0 3px 12px rgba(0,0,0,0.07);display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+.id-picker label{font-weight:600;color:#444;white-space:nowrap;font-size:.95rem;}
+.id-picker input{flex:1;min-width:200px;padding:10px 14px;border:2px solid #e0e0e0;border-radius:8px;font-size:1rem;transition:border-color .2s;}
+.id-picker input:focus{outline:none;border-color:#1a73e8;}
+.id-picker .btn-confirm{padding:10px 24px;border:none;border-radius:8px;font-size:.95rem;font-weight:600;
+  cursor:pointer;transition:all .2s;background:#1a73e8;color:white;}
+.id-picker .btn-confirm:hover{background:#0d5bb8;}
+.id-picker .btn-confirm:disabled{background:#ccc;cursor:not-allowed;}
+
+/* 身份信息栏 */
+.id-bar{background:white;border-radius:10px;padding:12px 20px;margin-bottom:20px;
+  box-shadow:0 2px 8px rgba(0,0,0,0.06);display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+.avatar{width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#1a73e8,#6c5ce7);
+  color:white;font-size:1rem;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.id-info strong{display:block;font-size:1rem;color:#222;}
+.id-info span{font-size:.82rem;color:#888;}
+.progress-text{font-size:.9rem;color:#1a73e8;font-weight:600;margin-left:auto;white-space:nowrap;}
+
+/* 组卡片 */
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;}
+@media(max-width:1000px){.cards{grid-template-columns:repeat(3,1fr);}}
+@media(max-width:720px){.cards{grid-template-columns:repeat(2,1fr);}}
+@media(max-width:440px){.cards{grid-template-columns:1fr;}}
+.card{background:white;border-radius:12px;padding:22px;box-shadow:0 3px 12px rgba(0,0,0,0.06);
+  border-left:5px solid #1a73e8;position:relative;transition:transform .2s,box-shadow .2s;}
+.card:hover{transform:translateY(-3px);box-shadow:0 8px 20px rgba(0,0,0,0.10);}
+.card.own{border-left-color:#f59e0b;opacity:.7;}
+.card.scored{border-left-color:#34a853;background:#f5fff8;}
+.badge{position:absolute;top:12px;right:14px;font-size:.7rem;font-weight:700;padding:3px 10px;border-radius:20px;}
+.badge-own{background:#fef3c7;color:#92400e;}
+.badge-scored{background:#d1fae5;color:#065f46;}
+.card-num{font-size:1.2rem;font-weight:700;color:#1a73e8;margin-bottom:6px;}
+.card.own .card-num{color:#f59e0b;}
+.card.scored .card-num{color:#34a853;}
+.card-score{font-size:.85rem;color:#888;margin-bottom:14px;}
+.card-btn{padding:9px 18px;border:none;border-radius:7px;font-size:.88rem;font-weight:600;cursor:pointer;transition:all .2s;width:100%;}
+.card-btn.goto{background:#1a73e8;color:white;}
+.card-btn.goto:hover{background:#0d5bb8;}
+.card-btn.view{background:#34a853;color:white;}
+.card-btn.view:hover{background:#2d8e47;}
+.card-btn.block{background:#d1d5db;color:#6b7280;cursor:not-allowed;}
+
+/* 确认身份弹窗 */
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:1000;align-items:center;justify-content:center;}
+.overlay.active{display:flex;}
+.modal{background:white;border-radius:14px;padding:34px 30px 24px;width:420px;max-width:92vw;
+  box-shadow:0 24px 64px rgba(0,0,0,0.22);text-align:center;}
+.modal h3{color:#1a73e8;font-size:1.3rem;margin-bottom:12px;}
+.modal .id-confirm{font-size:1.1rem;margin-bottom:6px;}
+.modal .id-confirm span{font-weight:700;color:#1a73e8;}
+.modal .hint{color:#888;font-size:.82rem;margin-bottom:24px;}
+.modal-btns{display:flex;gap:10px;justify-content:center;}
+.modal-btns button{padding:10px 28px;border:none;border-radius:8px;font-size:.95rem;font-weight:600;cursor:pointer;transition:all .2s;}
+.btn-cancel{background:#f0f0f0;color:#555;}
+.btn-cancel:hover{background:#e0e0e0;}
+.btn-ok{background:#1a73e8;color:white;}
+.btn-ok:hover{background:#0d5bb8;}
+.btn-danger{background:#ea4335;color:white;}
+.btn-danger:hover{background:#c0392b;}
+
+/* ================================================================ */
+/*  全新全屏评分弹窗  */
+/* ================================================================ */
+.score-fullscreen{position:fixed;inset:0;z-index:2000;background:rgba(15,15,15,0.75);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  display:flex;align-items:flex-start;justify-content:center;
+  padding:20px 20px 40px;overflow-y:auto;
+  opacity:0;visibility:hidden;transition:opacity .35s ease,visibility .35s ease;}
+.score-fullscreen.active{opacity:1;visibility:visible;}
+
+.score-page{background:white;border-radius:20px;width:100%;max-width:720px;
+  margin:10vh auto 40px;box-shadow:0 32px 96px rgba(0,0,0,0.30);
+  overflow:hidden;position:relative;
+  transform:translateY(30px) scale(.96);transition:transform .4s cubic-bezier(.16,1,.3,1);}
+.score-fullscreen.active .score-page{transform:translateY(0) scale(1);}
+
+/* 顶部 Hero 条 */
+.score-hero{background:linear-gradient(135deg,#0a1628 0%,#1a2d5a 40%,#1a73e8 100%);
+  padding:28px 32px;color:white;position:relative;overflow:hidden;}
+.score-hero::before{content:'';position:absolute;top:-60px;right:-60px;width:240px;height:240px;
+  background:radial-gradient(circle,rgba(255,255,255,.08) 0%,transparent 70%);border-radius:50%;pointer-events:none;}
+.score-hero::after{content:'';position:absolute;bottom:-40px;left:30%;width:180px;height:180px;
+  background:radial-gradient(circle,rgba(108,92,231,.25) 0%,transparent 70%);border-radius:50%;pointer-events:none;}
+.score-hero .hero-top{display:flex;align-items:center;justify-content:space-between;position:relative;z-index:1;}
+.score-hero .hero-group{font-size:.85rem;opacity:.7;letter-spacing:1px;text-transform:uppercase;}
+.score-hero .hero-title{font-size:1.65rem;font-weight:800;margin-top:4px;position:relative;z-index:1;}
+.score-hero .hero-subtitle{font-size:.88rem;opacity:.75;margin-top:4px;position:relative;z-index:1;}
+.hero-close{width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.12);
+  border:none;color:white;font-size:1.2rem;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  transition:background .2s;position:relative;z-index:1;}
+.hero-close:hover{background:rgba(255,255,255,.22);}
+
+/* 进度指示器 */
+.score-progress-wrap{padding:20px 32px 0;background:white;}
+.score-progress-bar{display:flex;align-items:center;gap:6px;margin-bottom:6px;}
+.score-progress-bar .dot{width:10px;height:10px;border-radius:50%;background:#e0e0e0;transition:all .3s;flex-shrink:0;}
+.score-progress-bar .dot.done{background:#34a853;box-shadow:0 0 8px rgba(52,168,83,.4);}
+.score-progress-bar .dot.current{background:#1a73e8;box-shadow:0 0 10px rgba(26,115,232,.5);transform:scale(1.3);}
+.score-progress-text{font-size:.78rem;color:#888;font-weight:600;}
+
+/* 评分主体 */
+.score-body{padding:20px 32px 28px;}
+
+/* 每个维度卡片 */
+.criterion-card{background:#fff;border:2px solid #eef0f5;border-radius:16px;
+  padding:20px 24px;margin-bottom:16px;transition:all .25s ease;
+  position:relative;overflow:hidden;}
+.criterion-card:hover{border-color:#d0d9f0;}
+.criterion-card.selected{border-color:#1a73e8;box-shadow:0 4px 20px rgba(26,115,232,.10);background:#fafcff;}
+.criterion-card .card-header{display:flex;align-items:center;gap:10px;margin-bottom:14px;}
+.criterion-card .card-icon{width:36px;height:36px;border-radius:10px;
+  background:linear-gradient(135deg,#eef3ff,#dce8ff);color:#1a73e8;
+  display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;}
+.criterion-card .card-label{font-weight:700;font-size:.95rem;color:#222;}
+.criterion-card .card-hint{font-size:.76rem;color:#aaa;margin-left:auto;white-space:nowrap;}
+
+/* 选项行 */
+.options-grid{display:flex;flex-direction:column;gap:8px;}
+.opt-pill{display:flex;align-items:center;gap:12px;padding:10px 16px;
+  border:2px solid #e8ecf5;border-radius:12px;cursor:pointer;
+  transition:all .18s ease;background:#fafbfd;position:relative;}
+.opt-pill:hover{border-color:#b8ccf5;background:#f4f7ff;transform:translateX(3px);}
+.opt-pill.chosen{border-color:#1a73e8;background:#e8f0fe;box-shadow:0 2px 12px rgba(26,115,232,.12);
+  transform:translateX(3px);}
+.opt-radio{width:20px;height:20px;border-radius:50%;border:2px solid #ccc;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  transition:all .2s;background:white;}
+.opt-pill.chosen .opt-radio{border-color:#1a73e8;background:#1a73e8;}
+.opt-pill.chosen .opt-radio::after{content:'';width:6px;height:6px;border-radius:50%;background:white;}
+.opt-label{flex:1;font-size:.9rem;color:#333;font-weight:500;}
+.opt-pill.chosen .opt-label{color:#0d3f8f;font-weight:600;}
+.opt-score-badge{font-weight:800;font-size:.95rem;color:#1a73e8;background:#eef3ff;
+  padding:3px 10px;border-radius:20px;min-width:44px;text-align:center;}
+.opt-pill.chosen .opt-score-badge{background:#1a73e8;color:white;}
+
+/* 总分区 */
+.score-footer{padding:20px 32px;border-top:2px solid #f0f4ff;
+  display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;}
+.total-display{display:flex;align-items:center;gap:12px;}
+.total-circle{width:64px;height:64px;border-radius:50%;
+  background:linear-gradient(135deg,#1a73e8,#6c5ce7);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  color:white;box-shadow:0 6px 20px rgba(26,115,232,.30);}
+.total-circle .total-num{font-size:1.4rem;font-weight:800;line-height:1;}
+.total-circle .total-max{font-size:.65rem;opacity:.7;}
+.total-label{font-size:.88rem;color:#888;font-weight:500;}
+.total-label strong{color:#1a73e8;font-size:1.1rem;}
+
+/* 评语输入 */
+.score-comment-wrap{padding:4px 32px 20px;}
+.comment-label{display:block;font-size:.88rem;font-weight:700;color:#333;margin-bottom:8px;}
+.comment-label span{color:#aaa;font-weight:500;font-size:.8rem;}
+.comment-input{width:100%;min-height:72px;padding:12px 14px;border:2px solid #e8ecf5;
+  border-radius:12px;font-size:.9rem;font-family:inherit;color:#333;resize:vertical;
+  transition:border-color .2s,box-shadow .2s;background:#fafbfd;line-height:1.6;}
+.comment-input:focus{outline:none;border-color:#1a73e8;background:white;box-shadow:0 2px 12px rgba(26,115,232,.10);}
+.comment-input::placeholder{color:#bbb;}
+
+.score-actions{display:flex;gap:10px;}
+.btn-submit{padding:12px 32px;border:none;background:linear-gradient(135deg,#1a73e8,#6c5ce7);
+  color:white;font-size:.95rem;font-weight:700;border-radius:10px;cursor:pointer;
+  transition:all .2s;box-shadow:0 4px 14px rgba(26,115,232,.30);}
+.btn-submit:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(26,115,232,.40);}
+.btn-submit:disabled{background:#ccc;box-shadow:none;cursor:not-allowed;transform:none;}
+.btn-cancel-score{padding:12px 20px;border:2px solid #e0e0e0;background:white;
+  color:#666;font-size:.92rem;font-weight:600;border-radius:10px;cursor:pointer;transition:all .2s;}
+.btn-cancel-score:hover{background:#f5f5f5;border-color:#ccc;}
+
+/* Toast */
+.toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);padding:12px 24px;border-radius:8px;
+  color:white;font-weight:600;font-size:.92rem;z-index:3000;display:none;box-shadow:0 6px 16px rgba(0,0,0,0.15);}
+.toast.error{background:#ea4335;}
+.toast.success{background:#34a853;}
+.toast.show{display:block;animation:toastIn .3s ease;}
+@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(-10px);}to{opacity:1;transform:translateX(-50%) translateY(0);}}
+
+footer{text-align:center;margin-top:40px;padding:16px;color:#aaa;font-size:.82rem;}
+</style>
+</head>
+<body>
+<div class="toast" id="toast"></div>
+
+<!-- 确认身份弹窗 -->
+<div class="overlay" id="confirmOverlay">
+  <div class="modal">
+    <h3>确认你的身份</h3>
+    <p class="id-confirm">姓名：<span id="confirmName"></span></p>
+    <p class="id-confirm">所在组：<span id="confirmGroup"></span></p>
+    <p class="hint">身份确认后不可更改</p>
+    <div class="modal-btns">
+      <button class="btn-cancel" onclick="closeConfirm()">重新输入</button>
+      <button class="btn-ok" onclick="doConfirm()">确认无误</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================================================================ -->
+<!--  全新全屏评分弹窗  -->
+<!-- ================================================================ -->
+<div class="score-fullscreen" id="scoreFullscreen">
+  <div class="score-page" id="scorePage"></div>
+</div>
+
+<div class="container">
+  <header>
+    <h1>📋 实战答辩评分表</h1>
+    <p>请为其他小组打分 · 每组限评一次 · 不能为本组评分</p>
+    <p id="activeClassBanner" style="margin-top:6px;font-size:.85rem;opacity:.9;display:none;">当前班级：<strong id="activeClassLabel"></strong></p>
+  </header>
+
+  <!-- 身份输入 -->
+  <div class="id-picker" id="idPicker">
+    <label for="nameInput">输入你的姓名：</label>
+    <input type="text" id="nameInput" placeholder="请输入你的真实姓名" autocomplete="off">
+    <button class="btn-confirm" onclick="pickName()" id="pickBtn">确认</button>
+  </div>
+
+  <!-- 身份信息栏 -->
+  <div class="id-bar" id="idBar" style="display:none">
+    <div class="avatar" id="avatar">?</div>
+    <div class="id-info">
+      <strong id="idName"></strong>
+      <span id="idGroup"></span>
+    </div>
+    <span class="progress-text" id="progress"></span>
+    <button class="btn-cancel" style="padding:6px 14px;font-size:.8rem;" onclick="resetIdentity()">重新输入</button>
+  </div>
+
+  <!-- 组卡片 -->
+  <div class="cards" id="cards"></div>
+  <footer>实战答辩评分系统</footer>
+</div>
+
+<script>
+let me = null;
+let criteria = [];
+let myScored = new Set();
+let students = [];
+let activeClass = '';  // 后台设定的当前评分班级（空表示未指定，展示全部）
+
+try { const s = sessionStorage.getItem('rater_me'); if (s) me = JSON.parse(s); } catch(e){}
+
+async function init() {
+  try {
+    // 读取后台设定的"当前评分班级"，并据此拉取该班级的名单
+    activeClass = ((await (await fetch('/api/active-class')).json()).class_name) || '';
+    const url = activeClass ? '/api/students?class_name=' + encodeURIComponent(activeClass) : '/api/students';
+    students = (await (await fetch(url)).json()).students || [];
+  } catch(e) { showToast('❌ 无法连接到服务器', 'error'); }
+
+  // 显示当前班级横幅
+  if (activeClass) {
+    const banner = document.getElementById('activeClassBanner');
+    const label = document.getElementById('activeClassLabel');
+    if (banner && label) { banner.style.display = ''; label.textContent = activeClass; }
+  }
+
+  // 缓存的身份若不属于当前评分班级，则清除（强制按当前班级重新确认）
+  if (me && activeClass && (me.class_name || '') !== activeClass) {
+    me = null; sessionStorage.removeItem('rater_me');
+  }
+  if (me) {
+    const found = students.find(s => s.name === me.name);
+    if (found) {
+      me.group = found.group_number;
+      me.class_name = found.class_name || '';
+      document.getElementById('nameInput').value = me.name;
+      doConfirm();
+    } else {
+      me = null; sessionStorage.removeItem('rater_me');
+    }
+  }
+}
+
+// 按学生自己的班级加载评分表（空班级回退全局默认）
+async function loadCriteriaForMe() {
+  try {
+    const url = '/api/criteria?class_name=' + encodeURIComponent(me.class_name || '');
+    criteria = (await (await fetch(url)).json()).criteria || [];
+  } catch(e) { criteria = []; }
+}
+
+function pickName() {
+  const name = document.getElementById('nameInput').value.trim();
+  if (!name) { showToast('❌ 请输入姓名', 'error'); return; }
+  const found = students.find(s => s.name === name);
+  if (!found) { showToast('❌ 名单中未找到 "' + name + '"', 'error'); return; }
+  document.getElementById('confirmName').textContent = name;
+  document.getElementById('confirmGroup').textContent = '第' + toCN(found.group_number) + '组（Group ' + pad(found.group_number) + '）';
+  document.getElementById('confirmOverlay').classList.add('active');
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && document.getElementById('idPicker').style.display !== 'none') pickName();
+});
+
+function closeConfirm() { document.getElementById('confirmOverlay').classList.remove('active'); }
+
+function doConfirm() {
+  const name = document.getElementById('nameInput').value.trim();
+  const found = students.find(s => s.name === name);
+  me = { name: found.name, group: found.group_number, class_name: found.class_name || '' };
+  sessionStorage.setItem('rater_me', JSON.stringify(me));
+  document.getElementById('confirmOverlay').classList.remove('active');
+  document.getElementById('idPicker').style.display = 'none';
+  render();
+}
+
+function resetIdentity() {
+  me = null; sessionStorage.removeItem('rater_me');
+  document.getElementById('idPicker').style.display = 'flex';
+  document.getElementById('idBar').style.display = 'none';
+  document.getElementById('cards').innerHTML = ''; myScored.clear();
+  document.getElementById('nameInput').value = '';
+}
+
+async function render() {
+  if (!me) return;
+  // 按本班级加载评分表
+  await loadCriteriaForMe();
+  // 只取一次"我的评分"，构建 target_group → 记录 映射，避免每张卡片重复请求
+  const myScoresMap = {};
+  try {
+    const data = await (await fetch('/api/scores/my?name=' + encodeURIComponent(me.name))).json();
+    (data.scores || []).forEach(s => { myScored.add(s.target_group); myScoresMap[s.target_group] = s; });
+  } catch(e){}
+
+  document.getElementById('idBar').style.display = 'flex';
+  document.getElementById('avatar').textContent = me.name.charAt(0);
+  document.getElementById('idName').textContent = me.name;
+  document.getElementById('idGroup').textContent = '第' + toCN(me.group) + '组（Group ' + pad(me.group) + '）';
+
+  // 仅显示本班级的小组（按班级隔离，不展示其他班级的组）
+  const myClassStudents = students.filter(s => (s.class_name || '') === (me.class_name || ''));
+  const groups = [...new Set(myClassStudents.map(s => s.group_number))].sort((a, b) => a - b);
+  const done = [...myScored].filter(g => g !== me.group && groups.includes(g)).length;
+  document.getElementById('progress').textContent = '已评 ' + done + ' / ' + Math.max(0, groups.length - 1) + ' 组';
+
+  const container = document.getElementById('cards');
+  container.innerHTML = '';
+  for (const g of groups) {
+    const isOwn = me.group === g;
+    const hasScored = myScored.has(g);
+    const card = document.createElement('div');
+    card.className = 'card' + (isOwn ? ' own' : '') + (hasScored ? ' scored' : '');
+    let badge = '';
+    if (isOwn) badge = '<span class="badge badge-own">本组</span>';
+    else if (hasScored) badge = '<span class="badge badge-scored">✓ 已评分</span>';
+    let btnHtml = '';
+    if (isOwn) btnHtml = '<button class="card-btn block">本组不参与互评</button>';
+    else if (hasScored) btnHtml = '<button class="card-btn view" onclick="viewScore(' + g + ')">查看评分</button>';
+    else btnHtml = '<button class="card-btn goto" onclick="openScoreFullscreen(' + g + ')">📝 开始评分</button>';
+
+    let scoreInfo = '';
+    if (hasScored && myScoresMap[g]) {
+      scoreInfo = '<div class="card-score">得分：' + myScoresMap[g].total_score + ' 分</div>';
+    }
+    card.innerHTML = badge + '<div class="card-num">📊 Group ' + pad(g) + '</div>' +
+      '<div style="font-size:.95rem;color:#666;margin-bottom:8px;">第' + toCN(g) + '组 答辩评分表</div>' + scoreInfo + btnHtml;
+    container.appendChild(card);
+  }
+}
+
+// ================================================================
+//  全屏评分弹窗 — 打开
+// ================================================================
+function openScoreFullscreen(targetGroup) {
+  if (!criteria.length) { showToast('❌ 评分标准未配置', 'error'); return; }
+
+  const maxScore = totalMaxScore();
+  const dimIcons = ['🔍','👥','🎤','🔧','✅','💖'];
+
+  let html = '';
+  // Hero
+  html += '<div class="score-hero">';
+  html += '<div class="hero-top"><span class="hero-group">Group ' + pad(targetGroup) + '</span>';
+  html += '<button class="hero-close" onclick="closeScoreFullscreen()" title="关闭">✕</button></div>';
+  html += '<div class="hero-title">📝 第' + toCN(targetGroup) + '组 答辩评分</div>';
+  html += '<div class="hero-subtitle">请根据答辩表现如实评分 · 满分 ' + maxScore + ' 分</div>';
+  html += '</div>';
+
+  // 进度条
+  html += '<div class="score-progress-wrap">';
+  html += '<div class="score-progress-bar">';
+  criteria.forEach((_, i) => {
+    html += '<div class="dot" id="progDot' + i + '"></div>';
+  });
+  html += '</div>';
+  html += '<div class="score-progress-text" id="progText">请逐项选择评分等级</div>';
+  html += '</div>';
+
+  // 评分维度
+  html += '<div class="score-body">';
+  criteria.forEach((cr, ci) => {
+    const maxOptScore = Math.max(...cr.options.map(o => o.score), 1);
+    html += '<div class="criterion-card" id="cCard' + ci + '">';
+    html += '<div class="card-header">';
+    html += '<div class="card-icon">' + (dimIcons[ci] || '📌') + '</div>';
+    html += '<div class="card-label">' + escHtml(cr.label) + '</div>';
+    html += '<div class="card-hint">满分 ' + maxOptScore + ' 分</div>';
+    html += '</div>';
+    html += '<div class="options-grid">';
+    cr.options.forEach(opt => {
+      html += '<div class="opt-pill" data-criterion="' + cr.id + '" data-option="' + opt.id + '" data-score="' + opt.score + '" onclick="pickOption(this,' + ci + ')">';
+      html += '<div class="opt-radio"></div>';
+      html += '<div class="opt-label">' + escHtml(opt.label) + '</div>';
+      html += '<div class="opt-score-badge">' + opt.score + ' 分</div>';
+      html += '</div>';
+    });
+    html += '</div></div>';
+  });
+  html += '</div>';
+
+  // 评语（可选）
+  html += '<div class="score-comment-wrap">';
+  html += '<label class="comment-label" for="scoreComment">💬 评语<span>（可选）</span></label>';
+  html += '<textarea class="comment-input" id="scoreComment" placeholder="写下你对这一组的评价或建议……" maxlength="500"></textarea>';
+  html += '</div>';
+
+  // 底部总分+提交
+  html += '<div class="score-footer">';
+  html += '<div class="total-display">';
+  html += '<div class="total-circle"><span class="total-num" id="totalScoreNum">0</span><span class="total-max">/ ' + maxScore + '</span></div>';
+  html += '<div class="total-label">实时总分 · 已选 <strong id="pickedCount">0</strong> / ' + criteria.length + ' 项</div>';
+  html += '</div>';
+  html += '<div class="score-actions">';
+  html += '<button class="btn-cancel-score" onclick="closeScoreFullscreen()">取消</button>';
+  html += '<button class="btn-submit" id="btnSubmit" disabled onclick="submitScoreFullscreen(' + targetGroup + ')">确认提交 · 不可修改</button>';
+  html += '</div>';
+  html += '</div>';
+
+  document.getElementById('scorePage').innerHTML = html;
+  document.getElementById('scoreFullscreen').classList.add('active');
+  document.body.style.overflow = 'hidden';
+  updateFullscreenTotal();
+}
+
+function closeScoreFullscreen() {
+  document.getElementById('scoreFullscreen').classList.remove('active');
+  document.body.style.overflow = '';
+}
+
+// ESC 关闭
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeScoreFullscreen();
+});
+
+function pickOption(el, criterionIndex) {
+  // 同一维度内互斥
+  const card = el.closest('.criterion-card');
+  card.querySelectorAll('.opt-pill').forEach(p => p.classList.remove('chosen'));
+  el.classList.add('chosen');
+  card.classList.add('selected');
+  updateFullscreenTotal();
+}
+
+function updateFullscreenTotal() {
+  let total = 0, picked = 0;
+  const page = document.getElementById('scorePage');
+  if (!page) return;
+
+  page.querySelectorAll('.criterion-card').forEach((card, ci) => {
+    const chosen = card.querySelector('.opt-pill.chosen');
+    const dot = page.querySelector('#progDot' + ci);
+    if (chosen) {
+      total += parseInt(chosen.dataset.score);
+      picked++;
+      if (dot) { dot.classList.add('done'); dot.classList.remove('current'); }
+    } else {
+      if (dot) { dot.classList.remove('done','current'); }
+    }
+  });
+
+  // 高亮第一个未选的维度
+  let firstUnpicked = null;
+  page.querySelectorAll('.criterion-card').forEach((card, ci) => {
+    const chosen = card.querySelector('.opt-pill.chosen');
+    const dot = page.querySelector('#progDot' + ci);
+    if (!chosen && !firstUnpicked) {
+      firstUnpicked = ci;
+      if (dot) dot.classList.add('current');
+    }
+  });
+
+  const totalEl = page.querySelector('#totalScoreNum');
+  const pickedEl = page.querySelector('#pickedCount');
+  const progEl = page.querySelector('#progText');
+  const btn = page.querySelector('#btnSubmit');
+
+  if (totalEl) totalEl.textContent = total;
+  if (pickedEl) pickedEl.textContent = picked;
+
+  const allPicked = picked === criteria.length;
+  if (progEl) progEl.textContent = allPicked ? '✅ 全部完成，请确认后提交' : '请逐项选择评分等级';
+  if (btn) {
+    btn.disabled = !allPicked;
+    if (allPicked) btn.textContent = '确认提交 · ' + total + ' 分 · 不可修改';
+    else btn.textContent = '确认提交 · 不可修改';
+  }
+}
+
+function totalMaxScore() {
+  let t = 0; criteria.forEach(cr => { t += Math.max(...cr.options.map(o => o.score), 0); }); return t;
+}
+
+// ================================================================
+//  提交评分
+// ================================================================
+async function submitScoreFullscreen(targetGroup) {
+  const page = document.getElementById('scorePage');
+  const selected = page.querySelectorAll('.opt-pill.chosen');
+  const required = {};
+  criteria.forEach(cr => { required[cr.id] = true; });
+  const selections = [];
+  selected.forEach(row => {
+    const cid = parseInt(row.dataset.criterion), oid = parseInt(row.dataset.option), sc = parseInt(row.dataset.score);
+    selections.push({ criterion_id: cid, option_id: oid, score: sc });
+    required[cid] = false;
+  });
+  if (Object.values(required).some(v => v)) { showToast('❌ 请为所有维度选择等级', 'error'); return; }
+
+  const totalNow = selections.reduce((a,b)=>a+b.score,0);
+  const comment = (page.querySelector('#scoreComment')?.value || '').trim();
+  if (!confirm('确认提交？提交后不可更改对第' + toCN(targetGroup) + '组的评分！\n\n总分：' + totalNow + ' / ' + totalMaxScore())) return;
+
+  try {
+    const res = await fetch('/api/scores', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ scorer_name:me.name, scorer_group:me.group, target_group:targetGroup, selections, comment, scorer_class: me.class_name || '' })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast('✅ 评分提交成功！', 'success');
+      closeScoreFullscreen();
+      myScored.add(targetGroup);
+      render();
+    } else showToast('❌ ' + (data.error||'提交失败'), 'error');
+  } catch(e) { showToast('❌ 提交失败，请检查网络', 'error'); }
+}
+
+// ================================================================
+//  查看评分
+// ================================================================
+async function viewScore(targetGroup) {
+  try {
+    const data = await (await fetch('/api/scores/my?name=' + encodeURIComponent(me.name))).json();
+    const found = (data.scores||[]).find(s => s.target_group === targetGroup);
+    if (!found) { showToast('未找到评分记录', 'error'); return; }
+
+    let html = '';
+    html += '<div class="score-hero">';
+    html += '<div class="hero-top"><span class="hero-group">Group ' + pad(targetGroup) + '</span>';
+    html += '<button class="hero-close" onclick="closeScoreFullscreen()" title="关闭">✕</button></div>';
+    html += '<div class="hero-title">✅ 第' + toCN(targetGroup) + '组 — 你的评分</div>';
+    html += '<div class="hero-subtitle">总分：' + found.total_score + ' / ' + totalMaxScore() + ' · ' + (found.created_at||'').replace('T',' ') + '</div>';
+    html += '</div>';
+
+    html += '<div class="score-body">';
+    html += '<div class="criterion-card" style="text-align:center;background:#f0fff0;border-color:#d1fae5;">';
+    html += '<span style="font-size:1.4rem;font-weight:800;color:#34a853;">总分：' + found.total_score + ' / ' + totalMaxScore() + '</span><br>';
+    html += '<span style="font-size:.82rem;color:#888;">' + (found.created_at||'') + '</span></div>';
+
+    if (found.comment) {
+      html += '<div class="criterion-card"><strong>评语：</strong><br>' + escHtml(found.comment) + '</div>';
+    }
+
+    html += '<div class="score-footer"><div class="total-label">感谢你的评分 🙏</div>';
+    html += '<div class="score-actions"><button class="btn-ok" onclick="closeScoreFullscreen()" style="padding:12px 28px;border:none;color:white;background:#1a73e8;border-radius:10px;font-size:.95rem;font-weight:700;cursor:pointer;">关闭</button></div>';
+    html += '</div>';
+
+    document.getElementById('scorePage').innerHTML = html;
+    document.getElementById('scoreFullscreen').classList.add('active');
+    document.body.style.overflow = 'hidden';
+  } catch(e) { showToast('❌ 网络错误', 'error'); }
+}
+
+const cn = ['','一','二','三','四','五','六','七','八','九','十','十一','十二','十三','十四','十五'];
+function toCN(n){ return cn[n]||n; }
+function pad(n){ return String(n).padStart(2,'0'); }
+function escHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function showToast(msg, type) {
+  const t = document.getElementById('toast'); t.textContent = msg; t.className = 'toast ' + type + ' show';
+  clearTimeout(t._timer); t._timer = setTimeout(()=>t.classList.remove('show'), 3000);
+}
+
+init();
+if (me) {
+  setTimeout(async () => {
+    document.getElementById('nameInput').value = me.name;
+    document.getElementById('idPicker').style.display = 'none';
+    await render();
+  }, 500);
+}
+</script>
+</body>
+</html>
