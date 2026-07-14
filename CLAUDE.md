@@ -83,6 +83,9 @@ Static HTML served from `static/` (no build step): `score.html` (student scoring
 
 ### Results & Export
 
+- Results are **scoped to one class** — the 成绩汇总 page has its own class selector (`resultsClassSelect`), defaulting to current class → server `active_class` → first class. Switching it reloads results and retargets the export link.
+- **Per-dimension values match by `criterion_label` snapshot, NOT `criterion_id`.** Editing a class's rubric (`save_criteria`) reassigns criterion IDs, orphaning historical `score_details` by id; matching on the snapshotted label keeps historical dimension breakdowns intact across rubric changes. This applies in `admin.html` (ranking + group detail) and `export_xlsx.py`.
+- Old scores persist when a class switches to a new rubric (they belong to the old standard). Admin clears them explicitly with **🗑 清空本班评分** → `POST /api/scores/clear` → `db.clear_class_scores(class_name)` (deletes all of that class's scores + details; empty class name is rejected to avoid mass-delete).
 - Ranking averages are rounded to **2 decimals** (`get_results` `avg_total`; frontend `toFixed(2)`).
 - `GET /api/results/export` returns an **`.xlsx`** (`openpyxl`) with two sheets:
   1. **评分明细** — full per-scorer detail (includes scorer names — this is the audit sheet).
@@ -96,11 +99,11 @@ Static HTML served from `static/` (no build step): `score.html` (student scoring
 | `/api/students` | mixed | GET list, POST import, DELETE by id |
 | `/api/classes` | mixed | GET list+counts, POST create, DELETE by name |
 | `/api/criteria` / `/api/templates` | Required for writes | GET/POST/DELETE |
-| `/api/scores` | mixed | POST submit, GET check/my, **DELETE `{score_id}` (reset a score, admin)** |
+| `/api/scores` | mixed | POST submit, GET check/my, DELETE `{score_id}` (reset one, admin), **POST `/clear` (clear a class's scores, admin)** |
 | `/api/results` | Required | GET, `/export` (xlsx), `/group/{n}` |
 | `/api/active-class` | GET public / POST admin | current class for the student page |
 
-Admin can reset (delete) a single score via the **重置** button in each row of a group's detail table (成绩汇总 → 查看明细), which calls `DELETE /api/scores/{score_id}` → `db.delete_score()`. The student can then re-score.
+Admin score-management actions (成绩汇总 tab): **重置** button per row in a group's detail table → `DELETE /api/scores/{score_id}` → `db.delete_score()` (the student can then re-score); **🗑 清空本班评分** → `POST /api/scores/clear` → `db.clear_class_scores()` (wipe a whole class's scores, e.g. before reusing the class with a new rubric).
 
 ## Development Notes
 

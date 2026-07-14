@@ -48,10 +48,11 @@ def build_results_xlsx(data: dict) -> bytes:
 
     for g in sorted(groups):
         for s in groups[g]["scores"]:
-            smap = {cs["criterion_id"]: cs["score"] for cs in s.get("criteria_scores", [])}
+            # 按快照维度名匹配（criterion_id 会因编辑评分标准而变，名称快照才稳定）
+            smap = {cs["criterion_label"]: cs["score"] for cs in s.get("criteria_scores", [])}
             ws1.append(
                 [s["scorer_name"], s["scorer_group"], g]
-                + [smap.get(c["id"], "") for c in criteria]
+                + [smap.get(c["label"], "") for c in criteria]
                 + [s["total_score"], (s.get("comment") or "")]
             )
 
@@ -77,7 +78,7 @@ def build_results_xlsx(data: dict) -> bytes:
         dim_avgs = []
         for c in criteria:
             vals = [cs["score"] for s in grp["scores"]
-                    for cs in s.get("criteria_scores", []) if cs["criterion_id"] == c["id"]]
+                    for cs in s.get("criteria_scores", []) if cs["criterion_label"] == c["label"]]
             dim_avgs.append(round(sum(vals) / len(vals), 2) if vals else "")
         ws2.append([r["rank"], f"第{g}组", r["score_count"]] + dim_avgs + [r["avg_total"]])
 

@@ -365,6 +365,24 @@ async def api_delete_score(score_id: int, request: Request):
         d.close()
 
 
+@app.post("/api/scores/clear")
+async def api_clear_class_scores(request: Request):
+    """清空某班级的全部评分及评语（保留学生名单与评分标准）——换新评分标准后清场重评。需登录。"""
+    user = await auth.get_logged_in_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "未登录"}, status_code=401)
+    data = await request.json()
+    class_name = (data.get("class_name", "") or "").strip()
+    if not class_name:
+        return JSONResponse({"ok": False, "error": "请指定要清空的班级"})
+    d = get_db_conn()
+    try:
+        deleted = d.clear_class_scores(class_name)
+        return {"ok": True, "deleted": deleted}
+    finally:
+        d.close()
+
+
 # ============================================================
 # 结果汇总 API
 # ============================================================

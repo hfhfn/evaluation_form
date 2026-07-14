@@ -623,6 +623,20 @@ class SQLiteDB:
         conn.execute("DELETE FROM scores WHERE id = ?", (score_id,))
         conn.commit()
 
+    def clear_class_scores(self, class_name: str) -> int:
+        """清空某班级的全部评分及明细（保留学生名单与评分标准）。返回删除条数。
+        常用于换新评分标准后清场重评。空班级名不处理，避免误删。"""
+        if not class_name:
+            return 0
+        conn = self._get()
+        conn.execute(
+            "DELETE FROM score_details WHERE score_id IN (SELECT id FROM scores WHERE scorer_class = ?)",
+            (class_name,),
+        )
+        cur = conn.execute("DELETE FROM scores WHERE scorer_class = ?", (class_name,))
+        conn.commit()
+        return cur.rowcount
+
     # ---------- 结果汇总 ----------
     def get_results(self, class_name: str = "") -> dict:
         conn = self._get()
@@ -1256,6 +1270,19 @@ class MySQLDB:
         with self._get() as cur:
             cur.execute("DELETE FROM score_details WHERE score_id = %s", (score_id,))
             cur.execute("DELETE FROM scores WHERE id = %s", (score_id,))
+
+    def clear_class_scores(self, class_name: str) -> int:
+        """清空某班级的全部评分及明细（保留学生名单与评分标准）。返回删除条数。
+        常用于换新评分标准后清场重评。空班级名不处理，避免误删。"""
+        if not class_name:
+            return 0
+        with self._get() as cur:
+            cur.execute(
+                "DELETE FROM score_details WHERE score_id IN (SELECT id FROM scores WHERE scorer_class = %s)",
+                (class_name,),
+            )
+            cur.execute("DELETE FROM scores WHERE scorer_class = %s", (class_name,))
+            return cur.rowcount
 
     # ---------- 结果汇总 ----------
     def get_results(self, class_name: str = "") -> dict:

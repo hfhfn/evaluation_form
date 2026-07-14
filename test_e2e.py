@@ -186,6 +186,18 @@ def run():
     check("综合平均分" in summary_txt, "排名 sheet 含综合平均分列")
     check("答辩很精彩" in summary_txt, "排名 sheet 逐条列出了评语")
 
+    section("清空本班评分")
+    before = client.get("/api/results?class_name=晚班一组").json()
+    had = sum(g["score_count"] for g in before.get("groups", {}).values())
+    check(had > 0, "清空前该班有评分")
+    r = client.post("/api/scores/clear", json={"class_name": "晚班一组"})
+    check(r.json().get("ok") and r.json().get("deleted", 0) > 0, "清空接口返回删除条数")
+    after = client.get("/api/results?class_name=晚班一组").json()
+    left = sum(g["score_count"] for g in after.get("groups", {}).values())
+    check(left == 0, "清空后该班评分为 0")
+    check(client.post("/api/scores/clear", json={"class_name": ""}).json().get("ok") is False,
+          "空班级名被拒绝（防误删）")
+
     section("评分模板 — 保存 / 列表 / 加载")
     r = client.post("/api/templates", json={"name": "E2E测试模板", "criteria": crit})
     check(r.json().get("ok"), "保存标准为模板")

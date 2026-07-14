@@ -238,8 +238,11 @@ input[type=number]{width:80px;}
     <!-- 成绩汇总 -->
     <div id="tab-results" class="tab-panel">
       <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
+        <label for="resultsClassSelect" style="font-weight:600;color:#444;">班级：</label>
+        <select id="resultsClassSelect" onchange="onResultsClassChange()" style="min-width:200px;"></select>
         <button class="btn btn-blue" onclick="loadResults()">🔄 刷新数据</button>
         <a id="csvExportLink" href="/api/results/export" class="btn btn-amber">📥 导出 Excel</a>
+        <button class="btn btn-red btn-sm" onclick="clearClassScores()" title="清空本班全部评分，用于换新评分标准后重评">🗑 清空本班评分</button>
       </div>
       <div id="resultsContent"></div>
     </div>
@@ -303,7 +306,66 @@ function switchTab(name) {
   if (name === 'students') { refreshClasses(currentClass).then(() => { loadStudents(); updateImportHint(); }); }
   if (name === 'criteria') { loadCriteriaClasses(currentClass).then(() => loadCriteria()); }
   if (name === 'templates') loadTemplates();
-  if (name === 'results') { refreshClasses(currentClass).then(() => loadResults()); }
+  if (name === 'results') { loadResultsClasses(currentClass).then(() => loadResults()); }
+}
+
+// 成绩汇总页专属的班级选择（与学生/标准页解耦；切换即显示该班结果，不影响学生评分页）
+async function loadResultsClasses(preferred) {
+  try {
+    const res = await fetch('/api/classes');
+    const data = await res.json();
+    const classes = data.classes || [];
+    const sel = document.getElementById('resultsClassSelect');
+    // 默认选中具体班级：当前班 → 学生正在评分的班级(active_class) → 第一个班，避免落到"全部班级"混合视图
+    let target = preferred;
+    if (!target) {
+      try { target = ((await (await fetch('/api/active-class')).json()).class_name) || ''; } catch(e) {}
+    }
+    if (!target && classes.length) target = classes[0].name;
+    sel.innerHTML = '<option value="">全部班级</option>';
+    classes.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.name;
+      opt.textContent = `${c.name} (${c.count}人)`;
+      if (c.name === target) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    updateResultsExportLink();
+  } catch(e) {}
+}
+
+function onResultsClassChange() {
+  updateResultsExportLink();
+  loadResults();
+}
+
+// 清空本班全部评分（保留学生名单与评分标准）——换新评分标准后清场重评
+async function clearClassScores() {
+  const cls = document.getElementById('resultsClassSelect').value;
+  if (!cls) { showToast('❌ 请先在上方选择具体班级', 'error'); return; }
+  if (!confirm('确定清空【' + cls + '】的全部评分吗？\n\n' +
+      '该班所有小组收到的评分与评语将被永久删除（学生名单、评分标准保留）。\n' +
+      '常用于更换评分标准后重新评分。此操作不可撤销！')) return;
+  try {
+    const res = await fetch('/api/scores/clear', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({class_name: cls})
+    });
+    const data = await res.json();
+    if (data.ok) {
+      showToast('✅ 已清空 ' + data.deleted + ' 条评分', 'success');
+      loadResults();
+    } else {
+      showToast('❌ ' + (data.error || '清空失败'), 'error');
+    }
+  } catch(e) { showToast('❌ 网络错误', 'error'); }
+}
+
+function updateResultsExportLink() {
+  const cls = document.getElementById('resultsClassSelect').value;
+  const link = document.getElementById('csvExportLink');
+  const encoded = encodeURIComponent(cls).replace(/%20/g, '+');
+  link.href = cls ? '/api/results/export?class_name=' + encoded : '/api/results/export';
 }
 
 // ========== 学生管理 ==========
@@ -830,7 +892,7 @@ async function deleteTemplate(id) {
 // ========== 成绩汇总 ==========
 async function loadResults() {
   try {
-    const cls = document.getElementById('classSelect').value;
+    const cls = document.getElementById('resultsClassSelect').value;
     const encoded = encodeURIComponent(cls).replace(/%20/g, '+');
     const url = cls ? '/api/results?class_name=' + encoded : '/api/results';
     const res = await fetch(url);
@@ -864,7 +926,7 @@ async function loadResults() {
           if (groupData && groupData.scores) {
             groupData.scores.forEach(s => {
               (s.criteria_scores||[]).forEach(cs => {
-                if (cs.criterion_id === c.id) cScores.push(cs.score);
+                if (cs.criterion_label === c.label) cScores.push(cs.score);
               });
             });
           }
@@ -898,7 +960,7 @@ async function toggleGroupDetail(groupNum) {
   }
 
   try {
-    const cls = document.getElementById('classSelect').value;
+    const cls = document.getElementById('resultsClassSelect').value;
     const encoded = encodeURIComponent(cls).replace(/%20/g, '+');
     const url = cls ? '/api/results/group/' + groupNum + '?class_name=' + encoded : '/api/results/group/' + groupNum;
     const res = await fetch(url);
@@ -914,7 +976,7 @@ async function toggleGroupDetail(groupNum) {
     (data.scores||[]).forEach(s => {
       html += `<tr><td>${escHtml(s.scorer_name)}</td><td>第${toCN(s.scorer_group)}组</td><td style="font-size:.82rem;">${escHtml(s.scorer_class||'—')}</td>`;
       criteria.forEach(c => {
-        const cs = (s.criteria_scores||[]).find(cs => cs.criterion_id === c.id);
+        const cs = (s.criteria_scores||[]).find(cs => cs.criterion_label === c.label);
         html += `<td>${cs ? cs.score : '—'}</td>`;
       });
       html += `<td><strong>${s.total_score}</strong></td>`;
@@ -930,7 +992,7 @@ async function toggleGroupDetail(groupNum) {
       html += '<div style="margin-top:8px;font-weight:600;font-size:.85rem;">各维度平均：';
       criteria.forEach(c => {
         const vals = (data.scores||[]).map(s => {
-          const cs = (s.criteria_scores||[]).find(cs => cs.criterion_id === c.id);
+          const cs = (s.criteria_scores||[]).find(cs => cs.criterion_label === c.label);
           return cs ? cs.score : null;
         }).filter(v => v !== null);
         const avg = vals.length > 0 ? (vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2) : '—';
