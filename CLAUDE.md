@@ -76,16 +76,16 @@ Static HTML served from `static/` (no build step): `score.html` (student scoring
 
 ### Key Business Rules
 
-- Each class has its own independent scoring rubric (`criteria.class_name`; `''` = global default). Editing a rubric later doesn't corrupt historical scores (dimension names are snapshotted into `score_details`).
-- One score per student per target group; students cannot score their own group.
+- Each class has its own independent scoring rubric (`criteria.class_name`; `''` = global default). A class may switch rubrics over time; scores are **isolated per scoring standard** — the results/detail/export/clear all operate on the scores matching the class's *current* standard (see Results & Export). Switching rubrics never deletes historical scores; it just changes which standard's scores are shown.
+- One **active** score per student per target group **within a standard**; students cannot score their own group. "Already scored" (`submit_score` duplicate check, and the student page's scored/`get_my_scores` state) is **standard-aware**: it only counts a score under the class's *current* standard. So after a rubric switch, a student may score the same group again under the new standard, and `submit_score` deletes their now-stale prior evaluation of that group (from the old standard) before inserting — keeping admin view and student view consistent and avoiding orphaned, unmanageable scores.
 - **Server-side validation** (`_validate_selections` in `submit_score`, both DB classes): a submission must cover every dimension of the scorer's class rubric exactly once, each option must belong to that rubric, and the stored score/total are taken **from the DB, never from the client**. Rejections return `"invalid_option"` or `"incomplete"`. This is the guard against malformed/auto/tampered submissions.
 - Student page shows a stronger confirmation when every dimension is set to its max option (guards against accidental all-max).
 
 ### Results & Export
 
-- Results are **scoped to one class** — the 成绩汇总 page has its own class selector (`resultsClassSelect`), defaulting to current class → server `active_class` → first class. Switching it reloads results and retargets the export link.
-- **Per-dimension values match by `criterion_label` snapshot, NOT `criterion_id`.** Editing a class's rubric (`save_criteria`) reassigns criterion IDs, orphaning historical `score_details` by id; matching on the snapshotted label keeps historical dimension breakdowns intact across rubric changes. This applies in `admin.html` (ranking + group detail) and `export_xlsx.py`.
-- Old scores persist when a class switches to a new rubric (they belong to the old standard). Admin clears them explicitly with **🗑 清空本班评分** → `POST /api/scores/clear` → `db.clear_class_scores(class_name)` (deletes all of that class's scores + details; empty class name is rejected to avoid mass-delete).
+- Results are **scoped to one class AND its current scoring standard**. The 成绩汇总 page has its own class selector (`resultsClassSelect`), defaulting to current class → server `active_class` → first class. Switching it reloads results and retargets the export link.
+- **Scoring-standard isolation** (`_standard_key` / `_belongs_to_standard` in `db.py`): a "standard" is identified by its **set of dimension labels** (`criterion_label`). `get_results` / `get_group_detail` only include scores whose snapshot label set equals the class's *current* rubric's label set. So switching a class to a different rubric hides the old-standard scores (no residual totals), switching back reveals them again (data is never deleted — just filtered), and different standards used by the same class stay isolated. `criterion_id` is **not** used for matching (IDs get reassigned by `save_criteria`); labels are the stable key. Same rule drives per-dimension display in `admin.html` and `export_xlsx.py`.
+- **清空本班当前标准评分** (🗑 button) → `POST /api/scores/clear` → `db.clear_class_scores(class_name)` deletes only the scores matching the class's *current* standard (label set); scores from other standards on the same class are kept. Empty class name is rejected to avoid mass-delete.
 - Ranking averages are rounded to **2 decimals** (`get_results` `avg_total`; frontend `toFixed(2)`).
 - `GET /api/results/export` returns an **`.xlsx`** (`openpyxl`) with two sheets:
   1. **评分明细** — full per-scorer detail (includes scorer names — this is the audit sheet).
@@ -103,7 +103,7 @@ Static HTML served from `static/` (no build step): `score.html` (student scoring
 | `/api/results` | Required | GET, `/export` (xlsx), `/group/{n}` |
 | `/api/active-class` | GET public / POST admin | current class for the student page |
 
-Admin score-management actions (成绩汇总 tab): **重置** button per row in a group's detail table → `DELETE /api/scores/{score_id}` → `db.delete_score()` (the student can then re-score); **🗑 清空本班评分** → `POST /api/scores/clear` → `db.clear_class_scores()` (wipe a whole class's scores, e.g. before reusing the class with a new rubric).
+Admin score-management actions (成绩汇总 tab): **重置** button per row in a group's detail table → `DELETE /api/scores/{score_id}` → `db.delete_score()` (the student can then re-score); **🗑 清空当前标准评分** → `POST /api/scores/clear` → `db.clear_class_scores()` (wipe only the selected class's scores under its *current* standard, e.g. before reusing the class with a new rubric — scores from other standards are kept).
 
 ## Development Notes
 

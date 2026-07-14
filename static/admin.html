@@ -242,7 +242,7 @@ input[type=number]{width:80px;}
         <select id="resultsClassSelect" onchange="onResultsClassChange()" style="min-width:200px;"></select>
         <button class="btn btn-blue" onclick="loadResults()">🔄 刷新数据</button>
         <a id="csvExportLink" href="/api/results/export" class="btn btn-amber">📥 导出 Excel</a>
-        <button class="btn btn-red btn-sm" onclick="clearClassScores()" title="清空本班全部评分，用于换新评分标准后重评">🗑 清空本班评分</button>
+        <button class="btn btn-red btn-sm" onclick="clearClassScores()" title="清空本班【当前评分标准】下的评分，用于换标准后重评">🗑 清空当前标准评分</button>
       </div>
       <div id="resultsContent"></div>
     </div>
@@ -339,12 +339,12 @@ function onResultsClassChange() {
   loadResults();
 }
 
-// 清空本班全部评分（保留学生名单与评分标准）——换新评分标准后清场重评
+// 清空本班【当前评分标准】下的评分（保留学生名单、评分标准，及该班其它标准下的历史评分）
 async function clearClassScores() {
   const cls = document.getElementById('resultsClassSelect').value;
   if (!cls) { showToast('❌ 请先在上方选择具体班级', 'error'); return; }
-  if (!confirm('确定清空【' + cls + '】的全部评分吗？\n\n' +
-      '该班所有小组收到的评分与评语将被永久删除（学生名单、评分标准保留）。\n' +
+  if (!confirm('确定清空【' + cls + '】在【当前评分标准】下的评分吗？\n\n' +
+      '仅删除与当前评分标准一致的评分与评语；该班其它评分标准下的历史评分、学生名单、评分标准均保留。\n' +
       '常用于更换评分标准后重新评分。此操作不可撤销！')) return;
   try {
     const res = await fetch('/api/scores/clear', {

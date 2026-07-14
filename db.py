@@ -104,6 +104,20 @@ def _validate_selections(criteria: list[dict], selections: list[dict]):
     return "ok", total, details
 
 
+def _standard_key(criteria: list[dict]) -> frozenset:
+    """评分标准的'指纹' = 其维度名称集合。
+
+    同一班级先后使用不同评分标准时，用它把各标准下的评分隔离开：
+    一条评分属于哪个标准，由它 score_details 里快照的维度名称集合决定。
+    """
+    return frozenset(c["label"] for c in criteria)
+
+
+def _belongs_to_standard(criteria_scores: list[dict], standard: frozenset) -> bool:
+    """一条评分是否属于指定标准：其明细维度名称集合与标准指纹完全一致。"""
+    return frozenset(cs.get("criterion_label") for cs in criteria_scores) == standard
+
+
 def _rows_to_csv(criteria: list[dict], rows) -> str:
     """把评分明细行聚合为规范 CSV 文本。
 
@@ -580,24 +594,71 @@ class SQLiteDB:
         return cur.fetchone()[0] > 0
 
     def get_my_scores(self, name: str) -> list[dict]:
-        rows = self._get().execute(
-            "SELECT s.target_group, s.total_score, s.comment, s.created_at, s.scorer_class "
-            "FROM scores s WHERE s.scorer_name = ? ORDER BY s.target_group",
+        """某学生已提交的评分——只返回属于其所在班级【当前评分标准】的评分。
+
+        换标准后，该生在旧标准下的评分不再算作'已评'，学生端会重新显示'开始评分'
+        （与后台成绩汇总口径一致），从而可在新标准下重评。
+        """
+        conn = self._get()
+        rows = conn.execute(
+            "SELECT s.id, s.target_group, s.total_score, s.comment, s.created_at, s.scorer_class, "
+            "sd.criterion_label AS lbl "
+            "FROM scores s LEFT JOIN score_details sd ON sd.score_id = s.id "
+            "WHERE s.scorer_name = ? ORDER BY s.target_group",
             (name,),
         ).fetchall()
-        return [dict(r) for r in rows]
+        by_id: dict = {}
+        for r in rows:
+            e = by_id.get(r["id"])
+            if e is None:
+                e = {"target_group": r["target_group"], "total_score": r["total_score"],
+                     "comment": r["comment"], "created_at": r["created_at"],
+                     "scorer_class": r["scorer_class"], "_labels": set()}
+                by_id[r["id"]] = e
+            if r["lbl"] is not None:
+                e["_labels"].add(r["lbl"])
+        std_cache: dict = {}
+        result = []
+        for e in by_id.values():
+            cls = e["scorer_class"] or ""
+            if cls not in std_cache:
+                std_cache[cls] = _standard_key(self.get_criteria(cls))
+            if frozenset(e.pop("_labels")) == std_cache[cls]:
+                result.append(e)
+        return result
 
     def submit_score(self, name: str, scorer_group: int, target_group: int,
                      selections: list[dict], comment: str, scorer_class: str = "") -> int | str:
         conn = self._get()
-        if self.check_scored(name, target_group):
-            return "already_scored"
 
         # 以本班评分表为准做服务端校验：分值与维度名一律取自数据库，
         # 前端传来的 score 一概不采信，杜绝畸形 / 伪造 / 自动重放的提交。
-        status, total, details = _validate_selections(self.get_criteria(scorer_class), selections)
+        criteria = self.get_criteria(scorer_class)
+        status, total, details = _validate_selections(criteria, selections)
         if status != "ok":
             return status  # "invalid_option" / "incomplete"
+
+        # 标准感知的判重：只有"当前标准"下已评过该组才拒绝；
+        # 若此前是在旧标准下评的（换标准了），删掉旧评分并允许按新标准重评。
+        current_std = _standard_key(criteria)
+        prev = conn.execute(
+            "SELECT s.id AS sid, sd.criterion_label AS lbl "
+            "FROM scores s LEFT JOIN score_details sd ON sd.score_id = s.id "
+            "WHERE s.scorer_name = ? AND s.target_group = ? AND s.scorer_class = ?",
+            (name, target_group, scorer_class),
+        ).fetchall()
+        labels_by_sid: dict = {}
+        for r in prev:
+            labels_by_sid.setdefault(r["sid"], set())
+            if r["lbl"] is not None:
+                labels_by_sid[r["sid"]].add(r["lbl"])
+        if any(frozenset(ls) == current_std for ls in labels_by_sid.values()):
+            return "already_scored"
+        old_ids = list(labels_by_sid.keys())
+        if old_ids:
+            qm = ",".join("?" * len(old_ids))
+            conn.execute(f"DELETE FROM score_details WHERE score_id IN ({qm})", old_ids)
+            conn.execute(f"DELETE FROM scores WHERE id IN ({qm})", old_ids)
 
         cur = conn.execute(
             "INSERT INTO scores (scorer_name, scorer_group, scorer_class, target_group, total_score, comment) "
@@ -624,18 +685,34 @@ class SQLiteDB:
         conn.commit()
 
     def clear_class_scores(self, class_name: str) -> int:
-        """清空某班级的全部评分及明细（保留学生名单与评分标准）。返回删除条数。
-        常用于换新评分标准后清场重评。空班级名不处理，避免误删。"""
+        """清空某班级【当前评分标准】下的全部评分及明细（保留学生名单与评分标准）。
+
+        只删除与该班当前评分标准（维度名称集合）一致的评分，其它标准下的历史评分保留，
+        实现"同一班级不同标准互相隔离"。返回删除条数。空班级名不处理，避免误删。
+        """
         if not class_name:
             return 0
         conn = self._get()
-        conn.execute(
-            "DELETE FROM score_details WHERE score_id IN (SELECT id FROM scores WHERE scorer_class = ?)",
+        std = _standard_key(self.get_criteria(class_name))
+        rows = conn.execute(
+            "SELECT s.id AS sid, sd.criterion_label AS lbl "
+            "FROM scores s LEFT JOIN score_details sd ON sd.score_id = s.id "
+            "WHERE s.scorer_class = ?",
             (class_name,),
-        )
-        cur = conn.execute("DELETE FROM scores WHERE scorer_class = ?", (class_name,))
+        ).fetchall()
+        labels_by_sid: dict[int, set] = {}
+        for r in rows:
+            labels_by_sid.setdefault(r["sid"], set())
+            if r["lbl"] is not None:
+                labels_by_sid[r["sid"]].add(r["lbl"])
+        target_ids = [sid for sid, ls in labels_by_sid.items() if frozenset(ls) == std]
+        if not target_ids:
+            return 0
+        qm = ",".join("?" * len(target_ids))
+        conn.execute(f"DELETE FROM score_details WHERE score_id IN ({qm})", target_ids)
+        conn.execute(f"DELETE FROM scores WHERE id IN ({qm})", target_ids)
         conn.commit()
-        return cur.rowcount
+        return len(target_ids)
 
     # ---------- 结果汇总 ----------
     def get_results(self, class_name: str = "") -> dict:
@@ -696,6 +773,12 @@ class SQLiteDB:
                         "criterion_label": row["criterion_label"],
                         "score": row["criterion_score"],
                     })
+
+            # 只保留"属于该班当前评分标准"的评分（不同标准互相隔离，换标准即不再残留）
+            if class_name:
+                std = _standard_key(criteria)
+                scorer_map = {k: e for k, e in scorer_map.items()
+                              if _belongs_to_standard(e["criteria_scores"], std)}
 
             results[g] = {
                 "group_number": g,
@@ -771,6 +854,12 @@ class SQLiteDB:
                     "criterion_label": row["criterion_label"],
                     "score": row["criterion_score"],
                 })
+
+        # 只显示属于该班当前评分标准的评分
+        if class_name:
+            std = _standard_key(criteria)
+            scorer_map = {k: e for k, e in scorer_map.items()
+                          if _belongs_to_standard(e["criteria_scores"], std)}
 
         return {
             "group_number": group_number,
@@ -1234,23 +1323,63 @@ class MySQLDB:
             return cur.fetchone()["cnt"] > 0
 
     def get_my_scores(self, name: str) -> list[dict]:
+        """某学生已提交的评分——只返回属于其所在班级【当前评分标准】的评分（换标准后旧评分不再算已评）。"""
         with self._get() as cur:
             cur.execute(
-                "SELECT target_group, total_score, comment, created_at, scorer_class "
-                "FROM scores WHERE scorer_name = %s ORDER BY target_group", (name,))
-            return cur.fetchall()
+                "SELECT s.id, s.target_group, s.total_score, s.comment, s.created_at, s.scorer_class, "
+                "sd.criterion_label AS lbl "
+                "FROM scores s LEFT JOIN score_details sd ON sd.score_id = s.id "
+                "WHERE s.scorer_name = %s ORDER BY s.target_group", (name,))
+            rows = cur.fetchall()
+        by_id: dict = {}
+        for r in rows:
+            e = by_id.get(r["id"])
+            if e is None:
+                e = {"target_group": r["target_group"], "total_score": r["total_score"],
+                     "comment": r["comment"], "created_at": r["created_at"],
+                     "scorer_class": r["scorer_class"], "_labels": set()}
+                by_id[r["id"]] = e
+            if r["lbl"] is not None:
+                e["_labels"].add(r["lbl"])
+        std_cache: dict = {}
+        result = []
+        for e in by_id.values():
+            cls = e["scorer_class"] or ""
+            if cls not in std_cache:
+                std_cache[cls] = _standard_key(self.get_criteria(cls))
+            if frozenset(e.pop("_labels")) == std_cache[cls]:
+                result.append(e)
+        return result
 
     def submit_score(self, name: str, scorer_group: int, target_group: int,
                      selections: list[dict], comment: str, scorer_class: str = "") -> int | str:
-        if self.check_scored(name, target_group):
-            return "already_scored"
-
         # 服务端按本班评分表校验，分值全部取自数据库（详见 _validate_selections）。
-        status, total, details = _validate_selections(self.get_criteria(scorer_class), selections)
+        criteria = self.get_criteria(scorer_class)
+        status, total, details = _validate_selections(criteria, selections)
         if status != "ok":
             return status  # "invalid_option" / "incomplete"
 
+        current_std = _standard_key(criteria)
         with self._get() as cur:
+            cur.execute(
+                "SELECT s.id AS sid, sd.criterion_label AS lbl "
+                "FROM scores s LEFT JOIN score_details sd ON sd.score_id = s.id "
+                "WHERE s.scorer_name = %s AND s.target_group = %s AND s.scorer_class = %s",
+                (name, target_group, scorer_class))
+            prev = cur.fetchall()
+            labels_by_sid: dict = {}
+            for r in prev:
+                labels_by_sid.setdefault(r["sid"], set())
+                if r["lbl"] is not None:
+                    labels_by_sid[r["sid"]].add(r["lbl"])
+            if any(frozenset(ls) == current_std for ls in labels_by_sid.values()):
+                return "already_scored"
+            old_ids = list(labels_by_sid.keys())
+            if old_ids:
+                fmt = ",".join(["%s"] * len(old_ids))
+                cur.execute(f"DELETE FROM score_details WHERE score_id IN ({fmt})", old_ids)
+                cur.execute(f"DELETE FROM scores WHERE id IN ({fmt})", old_ids)
+
             cur.execute(
                 "INSERT INTO scores (scorer_name, scorer_group, scorer_class, target_group, total_score, comment) "
                 "VALUES (%s, %s, %s, %s, %s, %s)",
@@ -1272,17 +1401,32 @@ class MySQLDB:
             cur.execute("DELETE FROM scores WHERE id = %s", (score_id,))
 
     def clear_class_scores(self, class_name: str) -> int:
-        """清空某班级的全部评分及明细（保留学生名单与评分标准）。返回删除条数。
-        常用于换新评分标准后清场重评。空班级名不处理，避免误删。"""
+        """清空某班级【当前评分标准】下的全部评分及明细（保留学生名单与评分标准）。
+
+        只删除与该班当前评分标准（维度名称集合）一致的评分，其它标准下的历史评分保留。
+        返回删除条数。空班级名不处理，避免误删。
+        """
         if not class_name:
             return 0
+        std = _standard_key(self.get_criteria(class_name))
         with self._get() as cur:
             cur.execute(
-                "DELETE FROM score_details WHERE score_id IN (SELECT id FROM scores WHERE scorer_class = %s)",
-                (class_name,),
-            )
-            cur.execute("DELETE FROM scores WHERE scorer_class = %s", (class_name,))
-            return cur.rowcount
+                "SELECT s.id AS sid, sd.criterion_label AS lbl "
+                "FROM scores s LEFT JOIN score_details sd ON sd.score_id = s.id "
+                "WHERE s.scorer_class = %s", (class_name,))
+            rows = cur.fetchall()
+            labels_by_sid: dict = {}
+            for r in rows:
+                labels_by_sid.setdefault(r["sid"], set())
+                if r["lbl"] is not None:
+                    labels_by_sid[r["sid"]].add(r["lbl"])
+            target_ids = [sid for sid, ls in labels_by_sid.items() if frozenset(ls) == std]
+            if not target_ids:
+                return 0
+            fmt = ",".join(["%s"] * len(target_ids))
+            cur.execute(f"DELETE FROM score_details WHERE score_id IN ({fmt})", target_ids)
+            cur.execute(f"DELETE FROM scores WHERE id IN ({fmt})", target_ids)
+            return len(target_ids)
 
     # ---------- 结果汇总 ----------
     def get_results(self, class_name: str = "") -> dict:
@@ -1339,6 +1483,10 @@ class MySQLDB:
                         "criterion_label": row["criterion_label"],
                         "score": row["criterion_score"],
                     })
+            if class_name:
+                std = _standard_key(criteria)
+                scorer_map = {k: e for k, e in scorer_map.items()
+                              if _belongs_to_standard(e["criteria_scores"], std)}
             results[g] = {
                 "group_number": g,
                 "score_count": len(scorer_map),
@@ -1398,6 +1546,10 @@ class MySQLDB:
                     "criterion_label": row["criterion_label"],
                     "score": row["criterion_score"],
                 })
+        if class_name:
+            std = _standard_key(criteria)
+            scorer_map = {k: e for k, e in scorer_map.items()
+                          if _belongs_to_standard(e["criteria_scores"], std)}
         return {"group_number": group_number, "criteria": criteria, "scores": list(scorer_map.values())}
 
     # ---------- 管理员认证 ----------

@@ -154,20 +154,6 @@ def run():
     check(len(cs) == 6, "明细含 6 个维度分")
     check(any(c["criterion_label"] == "【改】需求分析" for c in cs), "明细维度名取自快照（含改后的名）")
 
-    section("快照保险 — 删除维度后，历史明细仍可读")
-    detail = client.get("/api/results/group/2?class_name=晚班一组").json()
-    before_n = len(detail["scores"][0]["criteria_scores"])
-    # 从晚班一组删掉最后一个维度（情感分）再保存
-    shrunk = a_crit[:-1]
-    client.post("/api/criteria", json={"class_name": "晚班一组", "criteria": shrunk})
-    after_cols = client.get("/api/criteria?class_name=晚班一组").json()["criteria"]
-    check(len(after_cols) == 5, "晚班一组维度减为 5（情感分已删）")
-    detail2 = client.get("/api/results/group/2?class_name=晚班一组").json()
-    cs2 = detail2["scores"][0]["criteria_scores"]
-    check(len(cs2) == before_n, "历史评分明细条数不变（快照保住）")
-    check(any(c["criterion_label"] and "情感" in c["criterion_label"] for c in cs2),
-          "被删维度的历史明细仍显示原维度名（快照生效）")
-
     section("Excel 导出（明细 + 排名与评语两个 sheet）")
     import io as _io
     from openpyxl import load_workbook
@@ -186,17 +172,68 @@ def run():
     check("综合平均分" in summary_txt, "排名 sheet 含综合平均分列")
     check("答辩很精彩" in summary_txt, "排名 sheet 逐条列出了评语")
 
-    section("清空本班评分")
+    section("评分标准隔离 — 换标准后旧评分不残留，换回即恢复（数据不丢）")
+    # 删掉一个维度（情感分）= 切换到新评分标准（维度集合变了）
+    shrunk = a_crit[:-1]
+    client.post("/api/criteria", json={"class_name": "晚班一组", "criteria": shrunk})
+    check(len(client.get("/api/criteria?class_name=晚班一组").json()["criteria"]) == 5,
+          "晚班一组切到 5 维新标准")
+    res_new = client.get("/api/results?class_name=晚班一组").json()
+    check(sum(g["score_count"] for g in res_new["groups"].values()) == 0,
+          "换新标准后旧标准评分不再残留（隔离生效）")
+    detail_new = client.get("/api/results/group/2?class_name=晚班一组").json()
+    check(len(detail_new["scores"]) == 0, "换新标准后该组明细为空")
+    # 换回原 6 维标准（维度名集合一致）
+    client.post("/api/criteria", json={"class_name": "晚班一组", "criteria": a_crit})
+    res_back = client.get("/api/results?class_name=晚班一组").json()
+    g2b = res_back["groups"].get("2") or res_back["groups"].get(2)
+    check(g2b["score_count"] == 1, "换回原标准后评分恢复（历史未丢）")
+    check(g2b["scores"][0]["comment"] == "答辩很精彩", "恢复的评分内容完整")
+
+    section("清空本班当前标准评分")
     before = client.get("/api/results?class_name=晚班一组").json()
     had = sum(g["score_count"] for g in before.get("groups", {}).values())
-    check(had > 0, "清空前该班有评分")
+    check(had > 0, "清空前该班当前标准有评分")
     r = client.post("/api/scores/clear", json={"class_name": "晚班一组"})
     check(r.json().get("ok") and r.json().get("deleted", 0) > 0, "清空接口返回删除条数")
     after = client.get("/api/results?class_name=晚班一组").json()
     left = sum(g["score_count"] for g in after.get("groups", {}).values())
-    check(left == 0, "清空后该班评分为 0")
+    check(left == 0, "清空后该班当前标准评分为 0")
     check(client.post("/api/scores/clear", json={"class_name": ""}).json().get("ok") is False,
           "空班级名被拒绝（防误删）")
+
+    section("换标准后可重评（标准感知判重 + 替换旧评分）")
+    client.post("/api/classes", json={"name": "X班"})
+    client.post("/api/students/import",
+                json={"class_name": "X班", "students": [{"name": "小明", "group": 1}, {"name": "小红", "group": 2}]})
+
+    def std(labels):
+        return [{"label": l, "options": [{"label": "低", "score": 1}, {"label": "高", "score": 3}]} for l in labels]
+
+    client.post("/api/criteria", json={"class_name": "X班", "criteria": std(["A1", "A2"])})
+    crA = client.get("/api/criteria?class_name=X班").json()["criteria"]
+    selA = [{"criterion_id": c["id"], "option_id": c["options"][-1]["id"], "score": 3} for c in crA]
+    r = client.post("/api/scores", json={"scorer_name": "小明", "scorer_group": 1, "target_group": 2,
+                                          "selections": selA, "comment": "", "scorer_class": "X班"})
+    check(r.json().get("ok"), "标准A下小明评2组成功")
+    my = client.get("/api/scores/my?name=小明").json()["scores"]
+    check(any(s["target_group"] == 2 for s in my), "标准A下小明显示已评2组")
+    r = client.post("/api/scores", json={"scorer_name": "小明", "scorer_group": 1, "target_group": 2,
+                                          "selections": selA, "comment": "", "scorer_class": "X班"})
+    check("已评" in (r.json().get("error") or ""), "同标准下重复评2组被拒")
+
+    client.post("/api/criteria", json={"class_name": "X班", "criteria": std(["B1", "B2", "B3"])})
+    my2 = client.get("/api/scores/my?name=小明").json()["scores"]
+    check(all(s["target_group"] != 2 for s in my2), "换标准B后旧评分不再算已评（可重评）")
+    crB = client.get("/api/criteria?class_name=X班").json()["criteria"]
+    selB = [{"criterion_id": c["id"], "option_id": c["options"][-1]["id"], "score": 3} for c in crB]
+    r = client.post("/api/scores", json={"scorer_name": "小明", "scorer_group": 1, "target_group": 2,
+                                          "selections": selB, "comment": "新标准", "scorer_class": "X班"})
+    check(r.json().get("ok"), "标准B下小明可重评2组")
+    resB = client.get("/api/results?class_name=X班").json()
+    g2x = resB["groups"].get("2") or resB["groups"].get(2)
+    check(g2x["score_count"] == 1 and g2x["scores"][0]["total_score"] == 9,
+          "标准B下只剩 1 条（旧标准评分已被替换）")
 
     section("评分模板 — 保存 / 列表 / 加载")
     r = client.post("/api/templates", json={"name": "E2E测试模板", "criteria": crit})
