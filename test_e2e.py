@@ -168,10 +168,23 @@ def run():
     check(any(c["criterion_label"] and "情感" in c["criterion_label"] for c in cs2),
           "被删维度的历史明细仍显示原维度名（快照生效）")
 
-    section("CSV 导出")
-    csv = client.get("/api/results/export?class_name=晚班一组").content.decode("utf-8")
-    check("答辩很精彩" in csv, "导出的 CSV 含评语")
-    check("评分人" in csv, "CSV 含表头")
+    section("Excel 导出（明细 + 排名与评语两个 sheet）")
+    import io as _io
+    from openpyxl import load_workbook
+    xlsx = client.get("/api/results/export?class_name=晚班一组").content
+    wb = load_workbook(_io.BytesIO(xlsx))
+    check("评分明细" in wb.sheetnames, "含「评分明细」sheet")
+    check("排名与评语" in wb.sheetnames, "含「排名与评语」sheet")
+    detail_txt = "\n".join(
+        str(c) for row in wb["评分明细"].iter_rows(values_only=True) for c in row if c is not None
+    )
+    check("评分人" in detail_txt, "明细 sheet 含表头")
+    check("答辩很精彩" in detail_txt, "明细 sheet 含评语")
+    summary_txt = "\n".join(
+        str(c) for row in wb["排名与评语"].iter_rows(values_only=True) for c in row if c is not None
+    )
+    check("综合平均分" in summary_txt, "排名 sheet 含综合平均分列")
+    check("答辩很精彩" in summary_txt, "排名 sheet 逐条列出了评语")
 
     section("评分模板 — 保存 / 列表 / 加载")
     r = client.post("/api/templates", json={"name": "E2E测试模板", "criteria": crit})

@@ -1,6 +1,8 @@
 """数据库抽象层 — 统一 SQLite / MySQL 接口"""
 
+import csv
 import hashlib
+import io
 import sqlite3
 from typing import Any
 
@@ -70,6 +72,68 @@ DEFAULT_CRITERIA = [
 
 def _hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
+
+
+def _validate_selections(criteria: list[dict], selections: list[dict]):
+    """按本班评分表（get_criteria 的结果）校验一次提交。
+
+    返回 ``(status, total, details)``：
+      - ``status``：``"ok"`` / ``"invalid_option"``（选项不属于本班维度，或同一维度重复提交）
+        / ``"incomplete"``（未覆盖全部维度）。
+      - ``total``：服务端按数据库分值算出的总分。
+      - ``details``：``[(criterion_id, option_id, score, criterion_label), ...]``，分值与维度名均来自数据库。
+
+    前端传来的 score 一概不采信，杜绝畸形 / 伪造 / 自动重放的提交污染成绩。
+    """
+    if not criteria:
+        return "invalid_option", 0, []
+    valid = {cr["id"]: {o["id"]: (o["score"], cr["label"]) for o in cr["options"]}
+             for cr in criteria}
+    seen, total, details = set(), 0, []
+    for sel in selections or []:
+        cid = sel.get("criterion_id")
+        oid = sel.get("option_id")
+        if cid not in valid or oid not in valid[cid] or cid in seen:
+            return "invalid_option", 0, []
+        seen.add(cid)
+        score, label = valid[cid][oid]
+        total += score
+        details.append((cid, oid, score, label))
+    if seen != set(valid.keys()):
+        return "incomplete", 0, []
+    return "ok", total, details
+
+
+def _rows_to_csv(criteria: list[dict], rows) -> str:
+    """把评分明细行聚合为规范 CSV 文本。
+
+    入参 rows 每行含：scorer_name, scorer_group, target_group, total_score,
+    comment, criterion_id, criterion_score（同一份评分会因 JOIN 展开成多行）。
+    用 csv 模块输出，逗号/引号/换行一律正确转义，杜绝撑列串行；
+    行分隔符为 \\r\\n，配合导出时的 UTF-8 BOM，Excel(Windows) 可直接正确打开。
+    """
+    scorer_rows: dict[tuple, dict] = {}
+    for row in rows:
+        key = (row["scorer_name"], row["scorer_group"], row["target_group"])
+        if key not in scorer_rows:
+            scorer_rows[key] = {
+                "total_score": row["total_score"],
+                "comment": row["comment"] or "",
+                "criteria_scores": {},
+            }
+        if row["criterion_id"] is not None:
+            scorer_rows[key]["criteria_scores"][row["criterion_id"]] = row["criterion_score"]
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["评分人", "评分人所在组", "被评组号"]
+                    + [f"{cr['label']}(分)" for cr in criteria]
+                    + ["总分", "评语"])
+    for key, data in scorer_rows.items():
+        writer.writerow([key[0], key[1], key[2]]
+                        + [data["criteria_scores"].get(cr["id"], "") for cr in criteria]
+                        + [data["total_score"], data["comment"]])
+    return buf.getvalue()
 
 
 # ============================================================
@@ -529,20 +593,11 @@ class SQLiteDB:
         if self.check_scored(name, target_group):
             return "already_scored"
 
-        total = 0
-        labels = {}  # option_id -> 维度名称（快照）
-        for sel in selections:
-            cur = conn.execute(
-                "SELECT co.score AS score, c.label AS label "
-                "FROM criteria_options co JOIN criteria c ON c.id = co.criterion_id "
-                "WHERE co.id = ?",
-                (sel["option_id"],),
-            )
-            row = cur.fetchone()
-            if row is None:
-                return "invalid_option"
-            total += row["score"]
-            labels[sel["option_id"]] = row["label"]
+        # 以本班评分表为准做服务端校验：分值与维度名一律取自数据库，
+        # 前端传来的 score 一概不采信，杜绝畸形 / 伪造 / 自动重放的提交。
+        status, total, details = _validate_selections(self.get_criteria(scorer_class), selections)
+        if status != "ok":
+            return status  # "invalid_option" / "incomplete"
 
         cur = conn.execute(
             "INSERT INTO scores (scorer_name, scorer_group, scorer_class, target_group, total_score, comment) "
@@ -551,16 +606,22 @@ class SQLiteDB:
         )
         score_id = cur.lastrowid
 
-        for sel in selections:
+        for cid, oid, score, label in details:
             conn.execute(
                 "INSERT INTO score_details (score_id, criterion_id, option_id, score, criterion_label) "
                 "VALUES (?, ?, ?, ?, ?)",
-                (score_id, sel["criterion_id"], sel["option_id"], sel["score"],
-                 labels.get(sel["option_id"], "")),
+                (score_id, cid, oid, score, label),
             )
 
         conn.commit()
         return score_id
+
+    def delete_score(self, score_id: int):
+        """重置（删除）单条评分及其明细——供后台纠正异常 / 误评分。"""
+        conn = self._get()
+        conn.execute("DELETE FROM score_details WHERE score_id = ?", (score_id,))
+        conn.execute("DELETE FROM scores WHERE id = ?", (score_id,))
+        conn.commit()
 
     # ---------- 结果汇总 ----------
     def get_results(self, class_name: str = "") -> dict:
@@ -637,7 +698,7 @@ class SQLiteDB:
             ranked.append({
                 "group_number": g,
                 "score_count": data["score_count"],
-                "avg_total": round(avg_total, 1),
+                "avg_total": round(avg_total, 2),
             })
         ranked.sort(key=lambda x: (-x["avg_total"], x["group_number"]))
         for i, r in enumerate(ranked):
@@ -737,13 +798,6 @@ class SQLiteDB:
         if not criteria:
             return ""
 
-        lines = []
-        header_cols = ["评分人", "评分人所在组", "被评组号"]
-        for cr in criteria:
-            header_cols.append(f"{cr['label']}(分)")
-        header_cols.extend(["总分", "评语"])
-        lines.append(",".join(header_cols))
-
         if class_name:
             rows = conn.execute(
                 "SELECT s.scorer_name, s.scorer_group, s.target_group, s.total_score, s.comment, "
@@ -761,26 +815,7 @@ class SQLiteDB:
                 "ORDER BY s.target_group, s.scorer_name"
             ).fetchall()
 
-        scorer_rows: dict[tuple, list] = {}
-        for row in rows:
-            key = (row["scorer_name"], row["scorer_group"], row["target_group"])
-            if key not in scorer_rows:
-                scorer_rows[key] = {
-                    "total_score": row["total_score"],
-                    "comment": row["comment"] or "",
-                    "criteria_scores": {},
-                }
-            if row["criterion_id"] is not None:
-                scorer_rows[key]["criteria_scores"][row["criterion_id"]] = row["criterion_score"]
-
-        for key, data in scorer_rows.items():
-            vals = [key[0], str(key[1]), str(key[2])]
-            for cr in criteria:
-                vals.append(str(data["criteria_scores"].get(cr["id"], "")))
-            vals.extend([str(data["total_score"]), data["comment"]])
-            lines.append(",".join(vals))
-
-        return "\n".join(lines)
+        return _rows_to_csv(criteria, rows)
 
 
 # ============================================================
@@ -1195,21 +1230,12 @@ class MySQLDB:
                      selections: list[dict], comment: str, scorer_class: str = "") -> int | str:
         if self.check_scored(name, target_group):
             return "already_scored"
-        total = 0
-        labels = {}  # option_id -> 维度名称（快照）
-        with self._get() as cur:
-            for sel in selections:
-                cur.execute(
-                    "SELECT co.score AS score, c.label AS label "
-                    "FROM criteria_options co JOIN criteria c ON c.id = co.criterion_id "
-                    "WHERE co.id = %s",
-                    (sel["option_id"],),
-                )
-                row = cur.fetchone()
-                if row is None:
-                    return "invalid_option"
-                total += row["score"]
-                labels[sel["option_id"]] = row["label"]
+
+        # 服务端按本班评分表校验，分值全部取自数据库（详见 _validate_selections）。
+        status, total, details = _validate_selections(self.get_criteria(scorer_class), selections)
+        if status != "ok":
+            return status  # "invalid_option" / "incomplete"
+
         with self._get() as cur:
             cur.execute(
                 "INSERT INTO scores (scorer_name, scorer_group, scorer_class, target_group, total_score, comment) "
@@ -1217,14 +1243,19 @@ class MySQLDB:
                 (name, scorer_group, scorer_class, target_group, total, comment),
             )
             score_id = cur.lastrowid
-            for sel in selections:
+            for cid, oid, score, label in details:
                 cur.execute(
                     "INSERT INTO score_details (score_id, criterion_id, option_id, score, criterion_label) "
                     "VALUES (%s, %s, %s, %s, %s)",
-                    (score_id, sel["criterion_id"], sel["option_id"], sel["score"],
-                     labels.get(sel["option_id"], "")),
+                    (score_id, cid, oid, score, label),
                 )
         return score_id
+
+    def delete_score(self, score_id: int):
+        """重置（删除）单条评分及其明细——供后台纠正异常 / 误评分。"""
+        with self._get() as cur:
+            cur.execute("DELETE FROM score_details WHERE score_id = %s", (score_id,))
+            cur.execute("DELETE FROM scores WHERE id = %s", (score_id,))
 
     # ---------- 结果汇总 ----------
     def get_results(self, class_name: str = "") -> dict:
@@ -1291,7 +1322,7 @@ class MySQLDB:
         for g, data in results.items():
             avg_total = (sum(s["total_score"] for s in data["scores"]) / data["score_count"]) if data["score_count"] > 0 else 0
             ranked.append({"group_number": g, "score_count": data["score_count"],
-                           "avg_total": round(avg_total, 1)})
+                           "avg_total": round(avg_total, 2)})
         ranked.sort(key=lambda x: (-x["avg_total"], x["group_number"]))
         for i, r in enumerate(ranked):
             r["rank"] = i + 1
@@ -1372,6 +1403,9 @@ class MySQLDB:
 
     # ---------- CSV 导出 ----------
     def export_csv(self, class_name: str = "") -> str:
+        criteria = self.get_criteria(class_name)
+        if not criteria:
+            return ""
         with self._get() as cur:
             if class_name:
                 cur.execute(
@@ -1387,30 +1421,7 @@ class MySQLDB:
                     "FROM scores s LEFT JOIN score_details sd ON sd.score_id = s.id "
                     "ORDER BY s.target_group, s.scorer_name")
             rows = cur.fetchall()
-        criteria = self.get_criteria(class_name)
-        if not criteria:
-            return ""
-        header_cols = ["评分人", "评分人所在组", "被评组号"]
-        for cr in criteria:
-            header_cols.append(f"{cr['label']}(分)")
-        header_cols.extend(["总分", "评语"])
-        lines = [",".join(header_cols)]
-        scorer_rows: dict = {}
-        for row in rows:
-            key = (row["scorer_name"], row["scorer_group"], row["target_group"])
-            if key not in scorer_rows:
-                scorer_rows[key] = {"total_score": row["total_score"],
-                                    "comment": (row["comment"] or "").replace(",", "，"),
-                                    "criteria_scores": {}}
-            if row["criterion_id"] is not None:
-                scorer_rows[key]["criteria_scores"][row["criterion_id"]] = row["criterion_score"]
-        for key, data in scorer_rows.items():
-            vals = [key[0], str(key[1]), str(key[2])]
-            for cr in criteria:
-                vals.append(str(data["criteria_scores"].get(cr["id"], "")))
-            vals.extend([str(data["total_score"]), data["comment"]])
-            lines.append(",".join(vals))
-        return "\n".join(lines)
+        return _rows_to_csv(criteria, rows)
 
 
 # ============================================================

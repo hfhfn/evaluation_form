@@ -538,8 +538,18 @@ async function submitScoreFullscreen(targetGroup) {
   if (Object.values(required).some(v => v)) { showToast('❌ 请为所有维度选择等级', 'error'); return; }
 
   const totalNow = selections.reduce((a,b)=>a+b.score,0);
+  const maxTotal = totalMaxScore();
   const comment = (page.querySelector('#scoreComment')?.value || '').trim();
-  if (!confirm('确认提交？提交后不可更改对第' + toCN(targetGroup) + '组的评分！\n\n总分：' + totalNow + ' / ' + totalMaxScore())) return;
+
+  // 每个维度都选了最高档 → 给一句更醒目的二次确认，拦截"意外全满分"
+  const isAllMax = selections.length === criteria.length && selections.every(sel => {
+    const cr = criteria.find(c => c.id === sel.criterion_id);
+    return cr && sel.score === Math.max(...cr.options.map(o => o.score));
+  });
+  const confirmMsg = isAllMax
+    ? '⚠️ 你给第' + toCN(targetGroup) + '组每一项都打了最高档（满分 ' + totalNow + ' / ' + maxTotal + '）。\n\n确定这是你的真实评价吗？提交后不可更改！'
+    : '确认提交？提交后不可更改对第' + toCN(targetGroup) + '组的评分！\n\n总分：' + totalNow + ' / ' + maxTotal;
+  if (!confirm(confirmMsg)) return;
 
   try {
     const res = await fetch('/api/scores', {

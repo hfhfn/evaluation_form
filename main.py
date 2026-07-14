@@ -320,6 +320,8 @@ async def api_submit_score(request: Request):
             return JSONResponse({"ok": False, "error": "您已评过该组，不可重复评分"})
         elif result == "invalid_option":
             return JSONResponse({"ok": False, "error": "无效的评分选项"})
+        elif result == "incomplete":
+            return JSONResponse({"ok": False, "error": "请为所有维度选择等级后再提交"})
         else:
             return {"ok": True, "score_id": result}
     finally:
@@ -342,6 +344,23 @@ async def api_my_scores(name: str):
     d = get_db_conn()
     try:
         return {"scores": d.get_my_scores(name)}
+    finally:
+        d.close()
+
+
+@app.delete("/api/scores/{score_id}")
+async def api_delete_score(score_id: int, request: Request):
+    """重置（删除）某条评分——后台纠正异常/误评分（需登录）。
+
+    删除后该学生对该组即恢复未评状态，可重新评分。
+    """
+    user = await auth.get_logged_in_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "未登录"}, status_code=401)
+    d = get_db_conn()
+    try:
+        d.delete_score(score_id)
+        return {"ok": True}
     finally:
         d.close()
 
@@ -377,21 +396,28 @@ async def api_get_group_detail(group_number: int, request: Request, class_name: 
 
 
 @app.get("/api/results/export")
-async def api_export_csv(request: Request, class_name: str = Query("")):
-    """导出 CSV（可按班级筛选）"""
+async def api_export_results(request: Request, class_name: str = Query("")):
+    """导出 Excel（.xlsx）：Sheet1 评分明细，Sheet2 各组排名/综合评分/逐条评语（可按班级筛选，需登录）"""
     user = await auth.get_logged_in_user(request)
     if not user:
         return JSONResponse({"ok": False, "error": "未登录"}, status_code=401)
     d = get_db_conn()
     try:
-        csv_data = d.export_csv(class_name)
-        return Response(
-            content=csv_data.encode('utf-8'),
-            media_type="text/csv; charset=utf-8",
-            headers={"Content-Disposition": "attachment; filename=results.csv"},
-        )
+        data = d.get_results(class_name)
     finally:
         d.close()
+
+    from export_xlsx import build_results_xlsx
+    content = build_results_xlsx(data)
+    filename = f"评分结果_{class_name}.xlsx" if class_name else "评分结果.xlsx"
+    # 中文文件名用 RFC 5987 编码，避免部分浏览器乱码
+    from urllib.parse import quote
+    disp = f"attachment; filename=results.xlsx; filename*=UTF-8''{quote(filename)}"
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": disp},
+    )
 
 
 # ============================================================
@@ -436,7 +462,7 @@ def main():
     # 打印启动信息
     ip = get_local_ip()
     print(f"\n{'='*50}")
-    print(f"  实战答辩评分系统已启动")
+    print("  实战答辩评分系统已启动")
     print(f"{'='*50}")
     print(f"  学生评分:  http://{ip}:{config.PORT}")
     print(f"  管理员:    http://{ip}:{config.PORT}/admin/login")

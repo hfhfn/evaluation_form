@@ -34,10 +34,9 @@ def _clear_session_cookie(response: Response):
 
 def _store_session(session_id: str, username: str):
     """将 session 存入 Redis / 内存 / 文件（这里用简单文件存储）"""
-    session_file = f".sessions/{session_id}"
     import os
-    os.makedirs(".sessions", exist_ok=True)
-    with open(session_file, "w") as f:
+    os.makedirs(config.SESSION_DIR, exist_ok=True)
+    with open(os.path.join(config.SESSION_DIR, session_id), "w") as f:
         f.write(username)
 
 
@@ -45,7 +44,7 @@ def _load_session(session_id: str) -> Optional[str]:
     """从存储中读取 session 对应的用户名；超过 7 天的 session 视为过期并清除。"""
     import os
     import time
-    session_file = f".sessions/{session_id}"
+    session_file = os.path.join(config.SESSION_DIR, session_id)
     try:
         # 过期检查：与 Cookie 的 max_age 保持一致（7 天）
         if time.time() - os.path.getmtime(session_file) > 86400 * 7:
@@ -60,7 +59,7 @@ def _load_session(session_id: str) -> Optional[str]:
 def _remove_session(session_id: str):
     """删除 session"""
     import os
-    session_file = f".sessions/{session_id}"
+    session_file = os.path.join(config.SESSION_DIR, session_id)
     try:
         os.remove(session_file)
     except FileNotFoundError:

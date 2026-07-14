@@ -239,7 +239,7 @@ input[type=number]{width:80px;}
     <div id="tab-results" class="tab-panel">
       <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
         <button class="btn btn-blue" onclick="loadResults()">🔄 刷新数据</button>
-        <a id="csvExportLink" href="/api/results/export" class="btn btn-amber">📥 导出 CSV</a>
+        <a id="csvExportLink" href="/api/results/export" class="btn btn-amber">📥 导出 Excel</a>
       </div>
       <div id="resultsContent"></div>
     </div>
@@ -868,11 +868,11 @@ async function loadResults() {
               });
             });
           }
-          const avg = cScores.length > 0 ? (cScores.reduce((a,b)=>a+b,0) / cScores.length).toFixed(1) : '—';
+          const avg = cScores.length > 0 ? (cScores.reduce((a,b)=>a+b,0) / cScores.length).toFixed(2) : '—';
           html += `<td>${avg}</td>`;
         });
 
-        html += `<td><strong>${r.avg_total}</strong></td>`;
+        html += `<td><strong>${Number(r.avg_total).toFixed(2)}</strong></td>`;
         html += `<td><button class="btn btn-ghost btn-sm" onclick="toggleGroupDetail(${r.group_number})">查看明细 ▼</button></td>`;
         html += '</tr>';
         html += `<tr id="detail-row-${r.group_number}" style="display:none;"><td colspan="${6+criteria.length}">`;
@@ -909,7 +909,7 @@ async function toggleGroupDetail(groupNum) {
     html += '<table class="data-table" style="margin-top:6px;"><thead><tr>';
     html += '<th>评分人</th><th>所在组</th><th>所在班级</th>';
     criteria.forEach(c => { html += '<th>' + escHtml(c.label) + '</th>'; });
-    html += '<th>总分</th><th>评语</th><th>时间</th></tr></thead><tbody>';
+    html += '<th>总分</th><th>评语</th><th>时间</th><th>操作</th></tr></thead><tbody>';
 
     (data.scores||[]).forEach(s => {
       html += `<tr><td>${escHtml(s.scorer_name)}</td><td>第${toCN(s.scorer_group)}组</td><td style="font-size:.82rem;">${escHtml(s.scorer_class||'—')}</td>`;
@@ -919,7 +919,8 @@ async function toggleGroupDetail(groupNum) {
       });
       html += `<td><strong>${s.total_score}</strong></td>`;
       html += `<td style="font-size:.82rem;">${escHtml(s.comment||'')}</td>`;
-      html += `<td style="font-size:.78rem;color:#aaa;">${(s.created_at||'').replace('T',' ')}</td></tr>`;
+      html += `<td style="font-size:.78rem;color:#aaa;">${(s.created_at||'').replace('T',' ')}</td>`;
+      html += `<td><button onclick="resetScore(${s.id}, ${groupNum})" title="删除这条评分，该生可重新评分" style="padding:3px 10px;border:none;border-radius:6px;background:#ea4335;color:#fff;font-size:.78rem;cursor:pointer;white-space:nowrap;">重置</button></td></tr>`;
     });
 
     html += '</tbody></table>';
@@ -932,7 +933,7 @@ async function toggleGroupDetail(groupNum) {
           const cs = (s.criteria_scores||[]).find(cs => cs.criterion_id === c.id);
           return cs ? cs.score : null;
         }).filter(v => v !== null);
-        const avg = vals.length > 0 ? (vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(1) : '—';
+        const avg = vals.length > 0 ? (vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2) : '—';
         html += ' ' + escHtml(c.label) + ' ' + avg + ' | ';
       });
       html += '</div>';
@@ -944,6 +945,25 @@ async function toggleGroupDetail(groupNum) {
     detailDiv.innerHTML = '<span style="color:#ea4335;">加载明细失败</span>';
     row.style.display = '';
   }
+}
+
+// 重置（删除）某条评分：删除后该生对该组恢复未评状态，可重新评分
+async function resetScore(scoreId, groupNum) {
+  if (!confirm('确定重置这条评分吗？\n\n该记录将被删除，对应学生可重新为该组评分。\n此操作不可撤销。')) return;
+  try {
+    const res = await fetch('/api/scores/' + scoreId, { method:'DELETE' });
+    const data = await res.json();
+    if (data.ok) {
+      showToast('✅ 已重置该评分', 'success');
+      // 刷新排名与明细（loadResults 会重建明细行，随后重新展开本组）
+      await loadResults();
+      const row = document.getElementById('detail-row-' + groupNum);
+      if (row) row.style.display = 'none';
+      await toggleGroupDetail(groupNum);
+    } else {
+      showToast('❌ ' + (data.error || '重置失败'), 'error');
+    }
+  } catch(e) { showToast('❌ 网络错误', 'error'); }
 }
 
 // ========== 系统设置 ==========

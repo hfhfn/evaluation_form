@@ -1,0 +1,22 @@
+# 版本控制 / IDE / 工具目录
+.git
+.gitignore
+.idea
+.claude
+.sessions
+.sessions/
+.vscode
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# 本地数据（成绩库、会话）——绝不打进镜像，运行时用挂载卷
+data/
+evaluation.db
+*.db-journal
+*.sqlite
+
+# 会话工作区文件
+.sessions/*

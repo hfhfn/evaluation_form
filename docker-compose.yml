@@ -1,0 +1,23 @@
+services:
+  evaluation:
+    build: .
+    image: evaluation-form
+    container_name: evaluation_form
+    ports:
+      - "8888:8888"          # 宿主:容器；改端口时两处一起改
+    volumes:
+      - ./data:/data         # 成绩库 evaluation.db 与会话都存这里，容器重建不丢
+    environment:
+      - EVAL_DATA_DIR=/data
+      # 首次上线建议改掉默认密码与密钥：
+      # - EVAL_ADMIN_PASSWORD=换成强密码
+      # - EVAL_SECRET_KEY=换成随机串
+      # 如需改端口（同时改上面的 ports 映射）：
+      # - EVAL_PORT=8888
+      # 切换 MySQL（需自备 MySQL 服务）：
+      # - EVAL_DB=mysql
+      # - EVAL_MYSQL_HOST=host.docker.internal
+      # - EVAL_MYSQL_USER=root
+      # - EVAL_MYSQL_PASSWORD=你的密码
+      # - EVAL_MYSQL_DB=evaluation
+    restart: unless-stopped

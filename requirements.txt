@@ -1,6 +1,9 @@
 fastapi>=0.100.0
 uvicorn>=0.23.0
 
+# 导出 Excel（多 sheet：明细 + 排名与评语）
+openpyxl>=3.1.0
+
 # 运行端到端测试 (test_e2e.py) 需要：
 httpx>=0.24.0
 
