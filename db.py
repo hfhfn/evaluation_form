@@ -550,13 +550,25 @@ class SQLiteDB:
         conn.commit()
 
     # ---------- 评分标准模板 ----------
-    def save_template(self, name: str, criteria: list[dict]):
-        """保存评分标准为模板"""
+    def save_template(self, name: str, criteria: list[dict]) -> int:
+        """保存评分标准为模板，返回新模板 id"""
         import json
         conn = self._get()
         conn.execute(
             "INSERT INTO criteria_templates (name, data) VALUES (?, ?)",
             (name, json.dumps(criteria, ensure_ascii=False)),
+        )
+        new_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.commit()
+        return new_id
+
+    def update_template(self, template_id: int, name: str, criteria: list[dict]):
+        """就地覆盖已有模板（名称 + 维度数据）"""
+        import json
+        conn = self._get()
+        conn.execute(
+            "UPDATE criteria_templates SET name = ?, data = ? WHERE id = ?",
+            (name, json.dumps(criteria, ensure_ascii=False), template_id),
         )
         conn.commit()
 
@@ -1287,12 +1299,21 @@ class MySQLDB:
             cur.execute("DELETE FROM criteria WHERE id = %s", (criterion_id,))
 
     # ---------- 模板 ----------
-    def save_template(self, name: str, criteria: list[dict]):
+    def save_template(self, name: str, criteria: list[dict]) -> int:
         import json
         with self._get() as cur:
             cur.execute(
                 "INSERT INTO criteria_templates (name, data) VALUES (%s, %s)",
                 (name, json.dumps(criteria, ensure_ascii=False)),
+            )
+            return cur.lastrowid
+
+    def update_template(self, template_id: int, name: str, criteria: list[dict]):
+        import json
+        with self._get() as cur:
+            cur.execute(
+                "UPDATE criteria_templates SET name = %s, data = %s WHERE id = %s",
+                (name, json.dumps(criteria, ensure_ascii=False), template_id),
             )
 
     def get_templates(self) -> list[dict]:

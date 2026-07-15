@@ -265,8 +265,8 @@ async def api_save_template(request: Request):
     data = await request.json()
     d = get_db_conn()
     try:
-        d.save_template(data.get("name", ""), data.get("criteria", []))
-        return {"ok": True}
+        new_id = d.save_template(data.get("name", ""), data.get("criteria", []))
+        return {"ok": True, "id": new_id}
     finally:
         d.close()
 
@@ -281,6 +281,21 @@ async def api_load_template(template_id: int):
         d.close()
 
 
+@app.put("/api/templates/{template_id}")
+async def api_update_template(template_id: int, request: Request):
+    """就地修改并保存现有模板（名称 + 维度）"""
+    user = await auth.get_logged_in_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "未登录"}, status_code=401)
+    data = await request.json()
+    d = get_db_conn()
+    try:
+        d.update_template(template_id, data.get("name", ""), data.get("criteria", []))
+        return {"ok": True}
+    finally:
+        d.close()
+
+
 @app.delete("/api/templates/{template_id}")
 async def api_delete_template(template_id: int, request: Request):
     """删除模板"""
@@ -290,6 +305,42 @@ async def api_delete_template(template_id: int, request: Request):
     d = get_db_conn()
     try:
         d.delete_template(template_id)
+        return {"ok": True}
+    finally:
+        d.close()
+
+
+# ============================================================
+# 班级 ↔ 当前评分模板 绑定 API
+# ============================================================
+
+@app.get("/api/class-template")
+async def api_get_class_template(class_name: str = Query("")):
+    """获取某班级当前绑定的评分模板 id（未绑定或已删则为 None）"""
+    d = get_db_conn()
+    try:
+        raw = d.get_setting("class_tpl::" + class_name, "")
+        tpl_id = int(raw) if raw.isdigit() else None
+        # 绑定的模板若已被删除，则视为未绑定
+        if tpl_id is not None and not d.load_template(tpl_id):
+            tpl_id = None
+        return {"template_id": tpl_id}
+    finally:
+        d.close()
+
+
+@app.post("/api/class-template")
+async def api_set_class_template(request: Request):
+    """记录某班级当前绑定的评分模板 id（需登录）。template_id 为空=解绑。"""
+    user = await auth.get_logged_in_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "未登录"}, status_code=401)
+    data = await request.json()
+    class_name = (data.get("class_name", "") or "").strip()
+    tpl_id = data.get("template_id")
+    d = get_db_conn()
+    try:
+        d.set_setting("class_tpl::" + class_name, str(tpl_id) if tpl_id else "")
         return {"ok": True}
     finally:
         d.close()

@@ -238,6 +238,7 @@ def run():
     section("评分模板 — 保存 / 列表 / 加载")
     r = client.post("/api/templates", json={"name": "E2E测试模板", "criteria": crit})
     check(r.json().get("ok"), "保存标准为模板")
+    check(isinstance(r.json().get("id"), int) and r.json().get("id") > 0, "保存模板返回新 id")
     tpls = client.get("/api/templates").json()["templates"]
     mine = [t for t in tpls if t["name"] == "E2E测试模板"]
     check(len(mine) == 1, "模板出现在列表中")
@@ -249,6 +250,58 @@ def run():
     tmpl_crit = client.get("/api/criteria?class_name=模板班").json()["criteria"]
     check(len(tmpl_crit) == 6, "模板班获得 6 个维度")
     check(tmpl_crit[0]["label"].startswith("需求分析"), "模板班维度来自模板")
+
+    section("班级↔当前评分模板 绑定 — 记录 / 读回 / 解绑 / 应用生效")
+    # 未绑定时为 None
+    check(client.get("/api/class-template?class_name=模板班").json().get("template_id") is None,
+          "未绑定时 template_id 为 None")
+    # 绑定后读回一致
+    client.post("/api/class-template", json={"class_name": "模板班", "template_id": mine[0]["id"]})
+    check(client.get("/api/class-template?class_name=模板班").json().get("template_id") == mine[0]["id"],
+          "绑定后读回一致")
+    # 选模板即应用为该班标准：换成一个 2 维模板后，成绩汇总按新标准隔离（旧评分不再计入）
+    two_dim = [{"label": l, "options": [{"label": "低", "score": 1}, {"label": "高", "score": 3}]}
+               for l in ["维度甲", "维度乙"]]
+    tid2 = client.post("/api/templates", json={"name": "E2E两维模板", "criteria": two_dim}).json()["id"]
+    client.post("/api/criteria", json={"class_name": "模板班", "criteria": two_dim})  # 应用=换标准
+    client.post("/api/class-template", json={"class_name": "模板班", "template_id": tid2})
+    applied = client.get("/api/criteria?class_name=模板班").json()["criteria"]
+    check([c["label"] for c in applied] == ["维度甲", "维度乙"], "选模板后该班标准已切换为新模板维度")
+    check(client.get("/api/class-template?class_name=模板班").json().get("template_id") == tid2,
+          "绑定已更新为新模板")
+    # 删除模板后绑定视为解绑（None）
+    client.request("DELETE", "/api/templates/%d" % tid2)
+    check(client.get("/api/class-template?class_name=模板班").json().get("template_id") is None,
+          "绑定模板被删除后 template_id 回落为 None")
+
+    section("模板就地修改（PUT）— 覆盖同一模板")
+    up_crit = [{"label": "改后维度", "options": [{"label": "L", "score": 1}, {"label": "H", "score": 3}]}]
+    r = client.put("/api/templates/%d" % mine[0]["id"], json={"name": "E2E测试模板改", "criteria": up_crit})
+    check(r.json().get("ok"), "PUT 更新模板成功")
+    reloaded = client.get("/api/templates/%d" % mine[0]["id"]).json()["criteria"]
+    check(len(reloaded) == 1 and reloaded[0]["label"] == "改后维度", "模板内容已就地更新")
+    names = [t["name"] for t in client.get("/api/templates").json()["templates"]]
+    check("E2E测试模板改" in names, "模板改名生效")
+
+    section("等级顺序持久化 — 保存后顺序与提交顺序一致（不被分值左右）")
+    client.post("/api/classes", json={"name": "排序班"})
+    ordered = [{"label": "维度O", "sort_order": 0, "options": [
+        {"label": "高档", "score": 3, "sort_order": 0},
+        {"label": "低档", "score": 1, "sort_order": 1},
+        {"label": "中档", "score": 2, "sort_order": 2},
+    ]}]
+    client.post("/api/criteria", json={"class_name": "排序班", "criteria": ordered})
+    got = client.get("/api/criteria?class_name=排序班").json()["criteria"][0]["options"]
+    check([o["label"] for o in got] == ["高档", "低档", "中档"],
+          "选项顺序按提交的 sort_order 保存（与分值无关）")
+    ordered[0]["options"] = [
+        {"label": "低档", "score": 1, "sort_order": 0},
+        {"label": "高档", "score": 3, "sort_order": 1},
+        {"label": "中档", "score": 2, "sort_order": 2},
+    ]
+    client.post("/api/criteria", json={"class_name": "排序班", "criteria": ordered})
+    got2 = client.get("/api/criteria?class_name=排序班").json()["criteria"][0]["options"]
+    check([o["label"] for o in got2] == ["低档", "高档", "中档"], "重排后顺序持久生效")
 
     section("删除班级 — 无孤儿 / 连带删该班评分表 / 只删目标")
     a_crit_ids = [c["id"] for c in client.get("/api/criteria?class_name=晚班一组").json()["criteria"]]

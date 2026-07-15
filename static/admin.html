@@ -77,6 +77,9 @@ input[type=number]{width:80px;}
   border-radius:6px;flex-wrap:wrap;}
 .option-row input[type=text]{flex:1;min-width:100px;}
 .option-row input[type=number]{width:70px;}
+.drag-handle{cursor:grab;user-select:none;color:#9aa7bd;font-size:1rem;line-height:1;padding:0 2px;}
+.drag-handle:active{cursor:grabbing;}
+.option-row.drag-over{background:#e8f0ff;box-shadow:inset 0 2px 0 #1a73e8;}
 
 /* 排名 */
 .rank-gold{color:#b8860b;font-weight:800;}
@@ -121,7 +124,7 @@ input[type=number]{width:80px;}
     <div id="tab-students" class="tab-panel active">
       <!-- 班级选择 -->
       <div style="display:flex;gap:12px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
-        <label for="classSelect" style="font-weight:600;color:#444;">选择班级：</label>
+        <label for="classSelect" style="font-weight:600;color:#444;">当前评分班级：</label>
         <select id="classSelect" onchange="onClassChange()" style="min-width:200px;">
           <option value="">全部班级</option>
         </select>
@@ -185,53 +188,35 @@ input[type=number]{width:80px;}
 
     <!-- 评分标准 -->
     <div id="tab-criteria" class="tab-panel">
-      <!-- 编辑作用域：哪个班级的评分表 -->
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:14px 16px;background:#eef4ff;border:1px solid #d4e2ff;border-radius:10px;">
-        <label for="criteriaClassSelect" style="font-weight:700;color:#1a73e8;font-size:.92rem;">✏️ 正在编辑：</label>
-        <select id="criteriaClassSelect" onchange="onCriteriaClassChange()" style="min-width:240px;">
-          <option value="">全局默认（新建班级的初始模板）</option>
-        </select>
-        <span style="font-size:.8rem;color:#888;">每个班级各有一套评分表，互不影响</span>
+      <!-- 作用对象：当前评分班级（只读，来自学生管理页选择） -->
+      <div id="criteriaScopeHint" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:14px 16px;background:#eef4ff;border:1px solid #d4e2ff;border-radius:10px;">
+        <span style="font-weight:700;color:#1a73e8;font-size:.92rem;">🎯 当前评分班级：</span>
+        <strong id="criteriaScopeName" style="color:#1a73e8;">—</strong>
+        <span style="font-size:.8rem;color:#888;">在「学生管理」页切换班级；下方模板将作为该班的评分标准</span>
       </div>
-      <!-- 从模板加载 -->
+      <!-- 当前评分模板：换模板即换标准，立即生效 -->
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:18px;padding:14px 16px;background:#f8faff;border:1px solid #e8ecf5;border-radius:10px;">
-        <label for="criteriaTplSelect" style="font-weight:600;color:#444;font-size:.9rem;">📋 从模板加载：</label>
-        <select id="criteriaTplSelect" style="min-width:220px;">
+        <label for="criteriaTplSelect" style="font-weight:600;color:#444;font-size:.9rem;">📋 当前评分模板：</label>
+        <select id="criteriaTplSelect" onchange="onCriteriaTemplateChange()" style="min-width:240px;">
           <option value="">— 选择一个模板 —</option>
         </select>
-        <button class="btn btn-ghost btn-sm" onclick="applyTemplateToEditor()">📂 加载到编辑器</button>
-        <span style="font-size:.8rem;color:#aaa;">加载后可修改，记得点下方"保存评分标准"生效</span>
+        <button class="btn btn-blue btn-sm" onclick="saveToCurrentTemplate()" title="把当前改动直接保存回选中的模板，并设为当前班级评分标准">💾 保存到当前模板</button>
+        <button class="btn btn-green btn-sm" onclick="saveAsNewTemplateAndApply()" title="把当前改动另存为一个新模板，并设为当前班级评分标准">➕ 另存为新模板并启用</button>
+        <span style="font-size:.8rem;color:#aaa;">切换模板会立即成为该班评分标准；改维度可"保存到当前模板"或"另存为新模板"</span>
       </div>
       <div id="criteriaContainer"></div>
       <button class="btn btn-blue" onclick="addCriterion()" style="margin-top:12px;">＋ 添加评分维度</button>
-      <div style="margin-top:16px;">
-        <button class="btn btn-green" onclick="saveCriteria()">💾 保存评分标准</button>
-      </div>
     </div>
 
     <!-- 评分标准模板 -->
     <div id="tab-templates" class="tab-panel">
-      <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;">
-        <h3 style="color:#444;">评分标准模板</h3>
-        <button class="btn btn-blue btn-sm" onclick="saveCurrentAsTemplate()">💾 将当前标准保存为新模板</button>
+      <div style="margin-bottom:16px;">
+        <h3 style="color:#444;">评分模板库</h3>
+        <div style="font-size:.82rem;color:#aaa;margin-top:4px;">模板是评分标准的唯一来源。「修改」会载入到评分标准页编辑，改后另存为新模板。</div>
       </div>
-      <div style="display:flex;gap:24px;flex-wrap:wrap;">
-        <!-- 模板列表 -->
-        <div style="flex:1;min-width:280px;">
-          <h4 style="margin-bottom:10px;color:#444;">已保存的模板</h4>
-          <div id="templateList"></div>
-        </div>
-        <!-- 保存新模板 -->
-        <div style="flex:1;min-width:280px;">
-          <h4 style="margin-bottom:10px;color:#444;">保存为新模板</h4>
-          <div style="display:flex;gap:8px;margin-bottom:12px;">
-            <input type="text" id="templateName" placeholder="模板名称（如：2026春季班标准）" style="flex:1;">
-            <button class="btn btn-green btn-sm" onclick="saveNewTemplate()">保存</button>
-          </div>
-          <div style="font-size:.82rem;color:#aaa;">
-            保存当前评分标准为一个模板，下次使用时可直接加载。
-          </div>
-        </div>
+      <div style="max-width:560px;">
+        <h4 style="margin-bottom:10px;color:#444;">已保存的模板</h4>
+        <div id="templateList"></div>
       </div>
     </div>
 
@@ -304,7 +289,7 @@ function switchTab(name) {
   document.getElementById('tab-' + name).classList.add('active');
   // 各标签页打开时，把下拉框同步到共享的"当前班级"
   if (name === 'students') { refreshClasses(currentClass).then(() => { loadStudents(); updateImportHint(); }); }
-  if (name === 'criteria') { loadCriteriaClasses(currentClass).then(() => loadCriteria()); }
+  if (name === 'criteria') { loadCriteria(); }
   if (name === 'templates') loadTemplates();
   if (name === 'results') { loadResultsClasses(currentClass).then(() => loadResults()); }
 }
@@ -427,13 +412,6 @@ function onClassChange() {
   const csvLink = document.getElementById('csvExportLink');
   const encoded = encodeURIComponent(cls).replace(/%20/g, '+');
   csvLink.href = cls ? '/api/results/export?class_name=' + encoded : '/api/results/export';
-}
-
-// 评分标准页切换编辑作用域
-function onCriteriaClassChange() {
-  currentClass = document.getElementById('criteriaClassSelect').value;
-  publishActiveClass(currentClass);
-  loadCriteria();
 }
 
 // 更新"录入目标班级"提示：导入/添加的学生归入当前选中的班级
@@ -635,45 +613,29 @@ async function doImport(data) {
 // ========== 评分标准 ==========
 let criteriaData = [];
 
+// 载入"当前评分班级"的评分标准 + 模板下拉 + 已绑定模板预选
 async function loadCriteria() {
+  const cls = currentClass || '';
+  const nameEl = document.getElementById('criteriaScopeName');
+  if (nameEl) nameEl.textContent = cls || '全局默认（未选择班级）';
   try {
-    const cls = document.getElementById('criteriaClassSelect').value;
     const res = await fetch('/api/criteria?class_name=' + encodeURIComponent(cls));
     const data = await res.json();
     criteriaData = data.criteria || [];
     renderCriteria();
-    loadCriteriaTemplateOptions();
+    await loadCriteriaTemplateOptions();
   } catch(e) {
     showToast('❌ 加载评分标准失败', 'error');
   }
 }
 
-// 填充"评分标准"页的编辑作用域下拉（全局默认 + 各班级）
-// selectName 给定则选中它，否则保留当前选择
-async function loadCriteriaClasses(selectName) {
-  try {
-    const res = await fetch('/api/classes');
-    const data = await res.json();
-    const sel = document.getElementById('criteriaClassSelect');
-    const target = (selectName !== undefined) ? selectName : sel.value;
-    sel.innerHTML = '<option value="">全局默认（新建班级的初始模板）</option>';
-    (data.classes || []).forEach(c => {
-      const opt = document.createElement('option');
-      opt.value = c.name;
-      opt.textContent = `${c.name} (${c.count}人)`;
-      if (c.name === target) opt.selected = true;
-      sel.appendChild(opt);
-    });
-  } catch(e) {}
-}
-
-// 填充"评分标准"页顶部的模板下拉框
+// 填充"当前评分模板"下拉框，并预选当前班级已绑定的模板
 async function loadCriteriaTemplateOptions() {
+  const sel = document.getElementById('criteriaTplSelect');
+  if (!sel) return;
   try {
     const res = await fetch('/api/templates');
     const data = await res.json();
-    const sel = document.getElementById('criteriaTplSelect');
-    if (!sel) return;
     sel.innerHTML = '<option value="">— 选择一个模板 —</option>';
     (data.templates || []).forEach(t => {
       const opt = document.createElement('option');
@@ -681,24 +643,134 @@ async function loadCriteriaTemplateOptions() {
       opt.textContent = t.name;
       sel.appendChild(opt);
     });
+    // 预选当前班级绑定的模板（若存在）
+    let boundId = '';
+    try {
+      const b = await (await fetch('/api/class-template?class_name=' + encodeURIComponent(currentClass || ''))).json();
+      if (b && b.template_id != null) boundId = String(b.template_id);
+    } catch(e) {}
+    sel.value = boundId;
   } catch(e) {}
 }
 
-// 把选中的模板加载到编辑器（覆盖当前内容，需确认）
-async function applyTemplateToEditor() {
+// 记录当前班级绑定的模板 id
+async function bindClassTemplate(tplId) {
+  try {
+    await fetch('/api/class-template', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({class_name: currentClass || '', template_id: tplId})
+    });
+  } catch(e) {}
+}
+
+// 切换"当前评分模板"：确认后立即作为当前班级的评分标准生效
+async function onCriteriaTemplateChange() {
   const sel = document.getElementById('criteriaTplSelect');
   const id = sel.value;
-  if (!id) { showToast('❌ 请先选择一个模板', 'error'); return; }
+  if (!id) return;  // 选回"— 选择一个模板 —"不动作
   const tplName = sel.options[sel.selectedIndex].textContent;
-  if (criteriaData.length && !confirm('加载模板「' + tplName + '」会覆盖当前编辑器中的内容，确定继续？')) return;
+  const scope = currentClass ? ('班级「' + currentClass + '」') : '全局默认';
+  if (!confirm('将模板「' + tplName + '」设为' + scope + '的当前评分标准？\n\n' +
+      '该标准立即生效（学生按此评分）；若换到与旧标准不同的模板，旧标准下的历史评分会被隐藏，换回即恢复。')) {
+    // 取消：恢复到原绑定
+    await loadCriteriaTemplateOptions();
+    return;
+  }
   try {
-    const res = await fetch('/api/templates/' + id);
-    const data = await res.json();
-    criteriaData = data.criteria || [];
+    const tpl = await (await fetch('/api/templates/' + id)).json();
+    const crit = tpl.criteria || [];
+    const r = await fetch('/api/criteria', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({criteria: crit, class_name: currentClass || ''})
+    });
+    if (!(await r.json()).ok) { showToast('❌ 应用失败', 'error'); return; }
+    await bindClassTemplate(id);
+    criteriaData = crit;
     renderCriteria();
-    showToast('✅ 已加载模板「' + tplName + '」，修改后请点"保存评分标准"', 'success');
+    sel.value = id;
+    showToast('✅ 已将「' + tplName + '」设为' + scope + '的评分标准', 'success');
   } catch(e) {
-    showToast('❌ 加载失败', 'error');
+    showToast('❌ 应用失败', 'error');
+  }
+}
+
+// 校验编辑器内容；通过返回 true
+function validateCriteriaEditor() {
+  if (!criteriaData.length) { showToast('❌ 请先添加评分维度', 'error'); return false; }
+  for (const cr of criteriaData) {
+    if (!(cr.label||'').trim()) { showToast('❌ 请填写所有维度名称', 'error'); return false; }
+    for (const opt of (cr.options||[])) {
+      if (!(opt.label||'').trim()) { showToast('❌ 请填写所有等级名称', 'error'); return false; }
+    }
+  }
+  return true;
+}
+
+// 写库前把 sort_order 规范为“显示下标”，保证保存后顺序与当前显示完全一致
+function normalizeSortOrders() {
+  criteriaData.forEach((cr, ci) => {
+    cr.sort_order = ci;
+    (cr.options || []).forEach((opt, oi) => { opt.sort_order = oi; });
+  });
+}
+
+// 把编辑器内容应用为当前班级评分标准（生效）
+async function applyCriteriaToClass() {
+  const r = await fetch('/api/criteria', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({criteria: criteriaData, class_name: currentClass || ''})
+  });
+  return (await r.json()).ok;
+}
+
+// 直接修改保存：把改动写回当前选中的模板（就地覆盖），并设为当前班评分标准
+async function saveToCurrentTemplate() {
+  const sel = document.getElementById('criteriaTplSelect');
+  const id = sel.value;
+  if (!id) { showToast('❌ 当前未选择模板，请用"另存为新模板并启用"', 'error'); return; }
+  if (!validateCriteriaEditor()) return;
+  const tplName = sel.options[sel.selectedIndex].textContent;
+  if (!confirm('把当前改动直接保存到模板「' + tplName + '」并生效？\n\n将覆盖该模板原内容；若维度名有增删，旧标准下的历史评分会按标准隔离。')) return;
+  normalizeSortOrders();
+  const scope = currentClass ? ('班级「' + currentClass + '」') : '全局默认';
+  try {
+    const tr = await fetch('/api/templates/' + id, {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name: tplName, criteria: criteriaData})
+    });
+    if (!(await tr.json()).ok) { showToast('❌ 保存模板失败', 'error'); return; }
+    if (!(await applyCriteriaToClass())) { showToast('❌ 应用失败', 'error'); return; }
+    await bindClassTemplate(id);
+    await loadCriteria();
+    document.getElementById('criteriaTplSelect').value = String(id);
+    showToast('✅ 已保存到模板「' + tplName + '」并设为' + scope + '的评分标准', 'success');
+  } catch(e) {
+    showToast('❌ 保存失败', 'error');
+  }
+}
+
+// 改动维度后：另存为新模板并设为当前班级的评分标准
+async function saveAsNewTemplateAndApply() {
+  if (!validateCriteriaEditor()) return;
+  const name = prompt('为新模板命名（将同时设为当前班级的评分标准）：');
+  if (!name || !name.trim()) return;
+  const clean = name.trim();
+  normalizeSortOrders();
+  try {
+    const tr = await fetch('/api/templates', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name: clean, criteria: criteriaData})
+    });
+    const tres = await tr.json();
+    if (!tres.ok || !tres.id) { showToast('❌ 保存模板失败', 'error'); return; }
+    const scope = currentClass ? ('班级「' + currentClass + '」') : '全局默认';
+    if (!(await applyCriteriaToClass())) { showToast('❌ 应用失败', 'error'); return; }
+    await bindClassTemplate(tres.id);
+    await loadCriteria();  // 重新拉取（带正确 id）并预选新模板
+    document.getElementById('criteriaTplSelect').value = String(tres.id);
+    showToast('✅ 新模板「' + clean + '」已保存并设为' + scope + '的评分标准', 'success');
+  } catch(e) {
+    showToast('❌ 保存失败', 'error');
   }
 }
 
@@ -719,7 +791,8 @@ function renderCriteria() {
       </div>
       <div style="font-size:.82rem;color:#888;margin-bottom:8px;">评分等级选项：</div>
       ${(cr.options||[]).map((opt, oi) => `
-        <div class="option-row">
+        <div class="option-row" ondragover="optDragOver(event,${ci},${oi})" ondragleave="optDragLeave(event)" ondrop="optDrop(event,${ci},${oi})">
+          <span class="drag-handle" draggable="true" ondragstart="optDragStart(event,${ci},${oi})" ondragend="optDragEnd(event)" title="拖动调整该等级的上下位置">⠿</span>
           <span style="min-width:40px;font-size:.82rem;">等级${oi+1}</span>
           <input type="text" value="${escHtml(opt.label||'')}" placeholder="等级名（如：优秀）"
             oninput="criteriaData[${ci}].options[${oi}].label=this.value">
@@ -772,30 +845,36 @@ function deleteOption(ci, oi) {
   renderCriteria();
 }
 
-async function saveCriteria() {
-  // 验证
-  for (const cr of criteriaData) {
-    if (!cr.label.trim()) { showToast('❌ 请填写所有维度名称', 'error'); return; }
-    for (const opt of (cr.options||[])) {
-      if (!opt.label.trim()) { showToast('❌ 请填写所有等级名称', 'error'); return; }
-    }
-  }
-
-  try {
-    const cls = document.getElementById('criteriaClassSelect').value;
-    const res = await fetch('/api/criteria', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({criteria: criteriaData, class_name: cls})
-    });
-    const data = await res.json();
-    if (data.ok) {
-      const scope = cls ? ('班级「' + cls + '」') : '全局默认';
-      showToast('✅ ' + scope + '的评分标准已保存', 'success');
-      loadCriteria(); // Reload to get proper IDs
-    }
-  } catch(e) {
-    showToast('❌ 保存失败', 'error');
-  }
+// ----- 等级（选项）上下拖动排序：仅限同一维度内 -----
+let _optDrag = { ci: null, oi: null };
+function optDragStart(e, ci, oi) {
+  _optDrag = { ci, oi };
+  e.dataTransfer.effectAllowed = 'move';
+  try { e.dataTransfer.setData('text/plain', ci + ':' + oi); } catch(_) {}
+}
+function optDragEnd(e) { clearOptDragMarks(); _optDrag = { ci: null, oi: null }; }
+function optDragOver(e, ci, oi) {
+  if (_optDrag.ci !== ci) return;   // 跨维度不允许拖动
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  clearOptDragMarks();
+  e.currentTarget.classList.add('drag-over');
+}
+function optDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
+function clearOptDragMarks() {
+  document.querySelectorAll('.option-row.drag-over').forEach(r => r.classList.remove('drag-over'));
+}
+function optDrop(e, ci, oi) {
+  e.preventDefault();
+  clearOptDragMarks();
+  const from = _optDrag;
+  _optDrag = { ci: null, oi: null };
+  if (from.ci !== ci || from.oi === null || from.oi === oi) return;
+  const arr = criteriaData[ci].options;
+  if (!arr || from.oi >= arr.length) return;
+  const [moved] = arr.splice(from.oi, 1);
+  arr.splice(oi, 0, moved);
+  renderCriteria();  // 数组顺序=显示顺序；保存时 normalizeSortOrders 会据此写入 sort_order
 }
 
 // ========== 评分标准模板 ==========
@@ -805,14 +884,14 @@ async function loadTemplates() {
     const data = await res.json();
     const list = document.getElementById('templateList');
     if (!data.templates || !data.templates.length) {
-      list.innerHTML = '<p style="color:#aaa;text-align:center;padding:20px;">暂无模板</p>';
+      list.innerHTML = '<p style="color:#aaa;text-align:center;padding:20px;">暂无模板，可在「评分标准」页添加维度后点"另存为新模板并启用"</p>';
       return;
     }
     list.innerHTML = data.templates.map(t => `
       <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid #e8ecf5;border-radius:8px;margin-bottom:6px;">
         <span style="flex:1;font-weight:600;">${escHtml(t.name)}</span>
         <span style="font-size:.78rem;color:#aaa;">${(t.created_at||'').split('T')[0]}</span>
-        <button class="btn btn-blue btn-sm" onclick="loadTemplate(${t.id})">加载</button>
+        <button class="btn btn-blue btn-sm" onclick="editTemplate(${t.id})" title="载入到评分标准页编辑，改后另存为新模板">修改</button>
         <button class="btn btn-red btn-sm" onclick="deleteTemplate(${t.id})">删除</button>
       </div>
     `).join('');
@@ -821,56 +900,22 @@ async function loadTemplates() {
   }
 }
 
-async function saveCurrentAsTemplate() {
-  const name = prompt('请输入模板名称：');
-  if (!name || !name.trim()) return;
-  await doSaveTemplate(name.trim());
-}
-
-async function saveNewTemplate() {
-  const name = document.getElementById('templateName').value.trim();
-  if (!name) { showToast('❌ 请输入模板名称', 'error'); return; }
-  await doSaveTemplate(name);
-  document.getElementById('templateName').value = '';
-}
-
-async function doSaveTemplate(name) {
-  // 验证
-  for (const cr of criteriaData) {
-    if (!cr.label.trim()) { showToast('❌ 请填写所有维度名称', 'error'); return; }
-    for (const opt of (cr.options||[])) {
-      if (!opt.label.trim()) { showToast('❌ 请填写所有等级名称', 'error'); return; }
-    }
-  }
-  try {
-    const res = await fetch('/api/templates', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({name, criteria: criteriaData})
-    });
-    const data = await res.json();
-    if (data.ok) {
-      showToast('✅ 模板 "' + name + '" 已保存', 'success');
-      loadTemplates();
-    }
-  } catch(e) {
-    showToast('❌ 保存失败', 'error');
-  }
-}
-
-async function loadTemplate(id) {
+// 修改模板：载入到"评分标准"页编辑器（不落库），改完走"另存为新模板并启用"
+async function editTemplate(id) {
   try {
     const res = await fetch('/api/templates/' + id);
     const data = await res.json();
     criteriaData = data.criteria || [];
-    // 切换到"评分标准"标签（手动切，避免 loadCriteria 重新拉取覆盖刚加载的模板）
+    // 切到"评分标准"标签（手动切，避免 loadCriteria 重新拉取覆盖刚载入的模板）
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     document.querySelector('.tab-btn[onclick*="criteria"]').classList.add('active');
     document.getElementById('tab-criteria').classList.add('active');
-    await loadCriteriaClasses(currentClass);   // 填充编辑作用域下拉并同步到当前班级（作为保存目标）
+    const nameEl = document.getElementById('criteriaScopeName');
+    if (nameEl) nameEl.textContent = currentClass || '全局默认（未选择班级）';
     renderCriteria();
-    loadCriteriaTemplateOptions();
-    showToast('✅ 模板已加载到"评分标准"，选择目标班级后点"保存评分标准"', 'success');
+    await loadCriteriaTemplateOptions();
+    showToast('✅ 已载入编辑器，改完点"💾 另存为新模板并启用"', 'success');
   } catch(e) {
     showToast('❌ 加载失败', 'error');
   }

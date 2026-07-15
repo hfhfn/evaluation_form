@@ -68,15 +68,25 @@ Defaults come from `EVAL_DATA_DIR` (defaults to `./data`). Docker sets `EVAL_DAT
 | `templates` | Reusable criteria templates |
 | `scores` | One submission (scorer, target_group, total_score, comment, scorer_class) |
 | `score_details` | Per-dimension breakdown of a score; `criterion_label` is snapshotted at submit time |
-| `settings` | Key-value store (e.g., `active_class`) |
+| `settings` | Key-value store (e.g., `active_class`, and `class_tpl::<class>` = the template id currently bound to a class) |
 
 ### Frontend
 
 Static HTML served from `static/` (no build step): `score.html` (student scoring, full-screen popup, auto-detects class from `active_class`), `admin.html` (dashboard: classes, students, criteria editor, results, settings), `admin_login.html`.
 
+### Class ↔ Standard ↔ Template Model (admin UI)
+
+Classes and scoring standards are **decoupled and then combined**:
+- The **current scoring class** is chosen on the 学生管理 tab (the `classSelect`, labeled "当前评分班级"), which publishes `active_class`.
+- The 评分标准 tab has **no class selector** — it always targets the current scoring class (shown read-only). Its "📋 当前评分模板" dropdown **binds a template to that class**: changing it (after a confirm) immediately applies the template as the class's rubric (`POST /api/criteria`) and records the binding (`POST /api/class-template`).
+- **Templates are the single source of truth for standards.** Two ways to persist editor changes, both apply to the current class and (re)bind it: **💾 保存到当前模板** (`saveToCurrentTemplate` → `PUT /api/templates/{id}`, overwrites the bound template in place) and **➕ 另存为新模板并启用** (`saveAsNewTemplateAndApply` → `POST /api/templates`, creates a new named template). There is no separate "save criteria to class only" button — a rubric change is always also a template change.
+- **Option (等级) ordering** is drag-reorderable within a criterion (drag handle on each `.option-row`, HTML5 DnD, same-dimension only). Before every write the editor calls `normalizeSortOrders()` to set each criterion/option `sort_order = display index`, so saved order matches on-screen order. `save_criteria` honors the provided `sort_order` (falls back to score only when absent), and `get_criteria` returns options `ORDER BY sort_order, id` — order is thus independent of score.
+- The 评分模板 tab is just the template library: each row has **修改** (`editTemplate` — loads it into the 评分标准 editor; then save in place or as new) and **删除**.
+- Per-class binding is stored in `settings` under key `class_tpl::<class_name>` (value = template id, `''` = unbound). A binding whose template was deleted reads back as unbound; the editor still shows the class's real current rubric.
+
 ### Key Business Rules
 
-- Each class has its own independent scoring rubric (`criteria.class_name`; `''` = global default). A class may switch rubrics over time; scores are **isolated per scoring standard** — the results/detail/export/clear all operate on the scores matching the class's *current* standard (see Results & Export). Switching rubrics never deletes historical scores; it just changes which standard's scores are shown.
+- Each class has its own independent scoring rubric (`criteria.class_name`; `''` = global default), applied from a template (see model above). A class may switch rubrics over time; scores are **isolated per scoring standard** — the results/detail/export/clear all operate on the scores matching the class's *current* standard (see Results & Export). Switching rubrics never deletes historical scores; it just changes which standard's scores are shown.
 - One **active** score per student per target group **within a standard**; students cannot score their own group. "Already scored" (`submit_score` duplicate check, and the student page's scored/`get_my_scores` state) is **standard-aware**: it only counts a score under the class's *current* standard. So after a rubric switch, a student may score the same group again under the new standard, and `submit_score` deletes their now-stale prior evaluation of that group (from the old standard) before inserting — keeping admin view and student view consistent and avoiding orphaned, unmanageable scores.
 - **Server-side validation** (`_validate_selections` in `submit_score`, both DB classes): a submission must cover every dimension of the scorer's class rubric exactly once, each option must belong to that rubric, and the stored score/total are taken **from the DB, never from the client**. Rejections return `"invalid_option"` or `"incomplete"`. This is the guard against malformed/auto/tampered submissions.
 - Student page shows a stronger confirmation when every dimension is set to its max option (guards against accidental all-max).
@@ -98,7 +108,8 @@ Static HTML served from `static/` (no build step): `score.html` (student scoring
 | `/api/admin/*` | Required (except check) | login, logout, change-password |
 | `/api/students` | mixed | GET list, POST import, DELETE by id |
 | `/api/classes` | mixed | GET list+counts, POST create, DELETE by name |
-| `/api/criteria` / `/api/templates` | Required for writes | GET/POST/DELETE |
+| `/api/criteria` / `/api/templates` | Required for writes | GET/POST/DELETE. `POST /api/templates` returns `{ok, id}` (new template id); `PUT /api/templates/{id}` overwrites an existing template in place (`update_template`). |
+| `/api/class-template` | GET public / POST admin | per-class current-template binding (`{template_id}` / set `{class_name, template_id}`, backed by `settings` key `class_tpl::<class>`) |
 | `/api/scores` | mixed | POST submit, GET check/my, DELETE `{score_id}` (reset one, admin), **POST `/clear` (clear a class's scores, admin)** |
 | `/api/results` | Required | GET, `/export` (xlsx), `/group/{n}` |
 | `/api/active-class` | GET public / POST admin | current class for the student page |
