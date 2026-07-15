@@ -13,10 +13,6 @@ RUN pip install --no-cache-dir -r requirements.txt pymysql \
 # 拷贝应用代码
 COPY . .
 
-# 以非 root 用户运行，提高安全性
-RUN useradd --create-home appuser && chown -R appuser:appuser /app
-USER appuser
-
 # 数据目录（挂载卷）
 ENV EVAL_DATA_DIR=/data
 VOLUME ["/data"]
