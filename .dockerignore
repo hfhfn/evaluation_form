@@ -3,8 +3,6 @@
 .gitignore
 .idea
 .claude
-.sessions
-.sessions/
 .vscode
 
 # Python 缓存
@@ -18,5 +16,13 @@ evaluation.db
 *.db-journal
 *.sqlite
 
-# 会话工作区文件
-.sessions/*
+# 测试临时数据库
+test_data/
+
+# 评分模板 Markdown 文件（仅参考，不打入镜像）
+评分模板/
+
+# 文档（仅参考）
+CLAUDE.md
+README.md
+test_e2e.py

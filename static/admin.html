@@ -213,6 +213,32 @@ input[type=number]{width:80px;}
       <div style="margin-bottom:16px;">
         <h3 style="color:#444;">评分模板库</h3>
         <div style="font-size:.82rem;color:#aaa;margin-top:4px;">模板是评分标准的唯一来源。「修改」会载入到评分标准页编辑，改后另存为新模板。</div>
+
+        <!-- 导入区域：文件上传 + 粘贴导入 -->
+        <div style="display:flex;gap:16px;margin-top:16px;align-items:stretch;">
+          <!-- 左侧：文件上传 -->
+          <div style="flex:1;min-width:240px;">
+            <h4 style="margin-bottom:10px;color:#444;">📤 文件导入</h4>
+            <input type="file" id="templateUploadFile" accept=".json" onchange="handleTemplateUpload(event)" style="display:none;">
+            <label for="templateUploadFile" style="display:block;border:2px dashed #b3c9f5;border-radius:10px;
+              padding:24px 20px;text-align:center;cursor:pointer;transition:border-color .2s;background:#f8faff;"
+              onmouseenter="this.style.borderColor='#1a73e8'"
+              onmouseleave="this.style.borderColor='#b3c9f5'">
+              <div style="font-size:1.6rem;">📂</div>
+              <strong>点击选择 .json 模板文件</strong>
+              <p style="font-size:.82rem;color:#888;margin-top:4px;">从其他项目导出的模板</p>
+            </label>
+          </div>
+          <!-- 右侧：粘贴导入 -->
+          <div style="flex:1;min-width:240px;">
+            <h4 style="margin-bottom:10px;color:#444;">📋 粘贴导入</h4>
+            <textarea id="pasteTemplateJson" class="paste-area" style="height:200px;font-size:.82rem;font-family:monospace;line-height:1.5;" placeholder='{&#10;  "name": "我的评分标准",&#10;  "criteria": [&#10;    {&#10;      "dimensionLabel": "需求分析",&#10;      "options": [&#10;        {"optionLabel": "优秀", "score": 4},&#10;        {"optionLabel": "良好", "score": 3},&#10;        {"optionLabel": "一般", "score": 2}&#10;      ]&#10;    }&#10;  ]&#10;}'></textarea>
+            <div style="display:flex;gap:8px;margin-top:8px;">
+              <button class="btn btn-blue btn-sm" onclick="pasteImport()">导入</button>
+              <button class="btn btn-ghost btn-sm" onclick="copyDemo()" title="复制示例格式到剪贴板">📋 复制示例</button>
+            </div>
+          </div>
+        </div>
       </div>
       <div style="max-width:560px;">
         <h4 style="margin-bottom:10px;color:#444;">已保存的模板</h4>
@@ -629,8 +655,8 @@ async function loadCriteria() {
   }
 }
 
-// 填充"当前评分模板"下拉框，并预选当前班级已绑定的模板
-async function loadCriteriaTemplateOptions() {
+// 填充"当前评分模板"下拉框，并预选当前班级已绑定的模板（或指定模板）
+async function loadCriteriaTemplateOptions(preselectId) {
   const sel = document.getElementById('criteriaTplSelect');
   if (!sel) return;
   try {
@@ -643,13 +669,15 @@ async function loadCriteriaTemplateOptions() {
       opt.textContent = t.name;
       sel.appendChild(opt);
     });
-    // 预选当前班级绑定的模板（若存在）
-    let boundId = '';
-    try {
-      const b = await (await fetch('/api/class-template?class_name=' + encodeURIComponent(currentClass || ''))).json();
-      if (b && b.template_id != null) boundId = String(b.template_id);
-    } catch(e) {}
-    sel.value = boundId;
+    // 预选：优先使用传入的 preselectId，否则使用当前班级绑定的模板
+    let chosen = String(preselectId || '');
+    if (!chosen) {
+      try {
+        const b = await (await fetch('/api/class-template?class_name=' + encodeURIComponent(currentClass || ''))).json();
+        if (b && b.template_id != null) chosen = String(b.template_id);
+      } catch(e) {}
+    }
+    sel.value = chosen;
   } catch(e) {}
 }
 
@@ -891,6 +919,7 @@ async function loadTemplates() {
       <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid #e8ecf5;border-radius:8px;margin-bottom:6px;">
         <span style="flex:1;font-weight:600;">${escHtml(t.name)}</span>
         <span style="font-size:.78rem;color:#aaa;">${(t.created_at||'').split('T')[0]}</span>
+        <button class="btn btn-ghost btn-sm" onclick="downloadTemplate(${t.id})" title="下载为标准 JSON 模板文件">📥 下载</button>
         <button class="btn btn-blue btn-sm" onclick="editTemplate(${t.id})" title="载入到评分标准页编辑，改后另存为新模板">修改</button>
         <button class="btn btn-red btn-sm" onclick="deleteTemplate(${t.id})">删除</button>
       </div>
@@ -914,7 +943,7 @@ async function editTemplate(id) {
     const nameEl = document.getElementById('criteriaScopeName');
     if (nameEl) nameEl.textContent = currentClass || '全局默认（未选择班级）';
     renderCriteria();
-    await loadCriteriaTemplateOptions();
+    await loadCriteriaTemplateOptions(id);
     showToast('✅ 已载入编辑器，改完点"💾 另存为新模板并启用"', 'success');
   } catch(e) {
     showToast('❌ 加载失败', 'error');
@@ -931,6 +960,140 @@ async function deleteTemplate(id) {
     }
   } catch(e) {
     showToast('❌ 删除失败', 'error');
+  }
+}
+
+// ========== 模板下载 ==========
+async function downloadTemplate(id) {
+  try {
+    const res = await fetch('/api/templates/' + id + '/download');
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      showToast('❌ ' + (err.error || '下载失败'), 'error');
+      return;
+    }
+    const blob = await res.blob();
+    // 从 Content-Disposition 取文件名
+    let fname = '模板_' + id + '.json';
+    const disp = res.headers.get('Content-Disposition') || '';
+    const m = disp.match(/filename\*=UTF-8''(.+?)(?:;|$)/);
+    if (m) fname = decodeURIComponent(m[1]);
+    else {
+      const m2 = disp.match(/filename="?(.+?)"?$/);
+      if (m2) fname = m2[1];
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fname;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+  } catch(e) {
+    showToast('❌ 下载失败', 'error');
+  }
+}
+
+// ========== 模板文件导入 ==========
+async function handleTemplateUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (!file.name.toLowerCase().endsWith('.json')) {
+    showToast('❌ 请选择 .json 格式文件', 'error');
+    e.target.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = async function(ev) {
+    try {
+      const data = JSON.parse(ev.target.result);
+      if (!data.name || !Array.isArray(data.criteria) || !data.criteria.length) {
+        showToast('❌ 格式无效，需要包含 name 和 criteria 数组', 'error');
+        return;
+      }
+      const res = await fetch('/api/templates/upload', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: data.name, criteria: data.criteria}),
+      });
+      const result = await res.json();
+      if (result.ok) {
+        showToast('✅ 模板「' + escHtml(data.name) + '」导入成功', 'success');
+        loadTemplates();
+      } else {
+        showToast('❌ ' + (result.error || '导入失败'), 'error');
+      }
+    } catch(err) {
+      showToast('❌ JSON 解析失败：' + err.message, 'error');
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+}
+
+// ========== 模板粘贴导入 ==========
+async function pasteImport() {
+  const text = document.getElementById('pasteTemplateJson').value.trim();
+  if (!text) { showToast('❌ 请先粘贴 JSON 数据', 'error'); return; }
+  try {
+    const data = JSON.parse(text);
+    if (!data.name || !Array.isArray(data.criteria) || !data.criteria.length) {
+      showToast('❌ 格式无效，需要包含 name 和 criteria 数组', 'error');
+      return;
+    }
+    const res = await fetch('/api/templates/upload', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: data.name, criteria: data.criteria}),
+    });
+    const result = await res.json();
+    if (result.ok) {
+      showToast('✅ 模板「' + escHtml(data.name) + '」导入成功', 'success');
+      loadTemplates();
+    } else {
+      showToast('❌ ' + (result.error || '导入失败'), 'error');
+    }
+  } catch(err) {
+    showToast('❌ JSON 解析失败：' + err.message, 'error');
+  }
+}
+
+// ========== 复制示例 JSON 到剪贴板 ==========
+var DEMO_TEMPLATE = JSON.stringify({
+  "name": "我的评分标准",
+  "criteria": [
+    {
+      "dimensionLabel": "需求分析",
+      "options": [
+        {"optionLabel": "优秀", "score": 4},
+        {"optionLabel": "良好", "score": 3},
+        {"optionLabel": "一般", "score": 2}
+      ]
+    },
+    {
+      "dimensionLabel": "团队协作",
+      "options": [
+        {"optionLabel": "优秀", "score": 4},
+        {"optionLabel": "一般", "score": 2}
+      ]
+    }
+  ]
+}, null, 2);
+
+function copyDemo() {
+  // 用临时 textarea 做兼容复制
+  var ta = document.createElement('textarea');
+  ta.value = DEMO_TEMPLATE;
+  ta.setAttribute('readonly', '');
+  ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+  document.body.appendChild(ta);
+  ta.select();
+  ta.setSelectionRange(0, ta.value.length);
+  var ok = false;
+  try { ok = document.execCommand('copy'); } catch(e) {}
+  document.body.removeChild(ta);
+  if (ok) {
+    showToast('✅ 已复制到剪贴板', 'success');
+  } else {
+    showToast('❌ 复制失败，请手动复制', 'error');
   }
 }
 

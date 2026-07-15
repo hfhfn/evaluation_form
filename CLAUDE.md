@@ -91,6 +91,16 @@ Classes and scoring standards are **decoupled and then combined**:
 - **Server-side validation** (`_validate_selections` in `submit_score`, both DB classes): a submission must cover every dimension of the scorer's class rubric exactly once, each option must belong to that rubric, and the stored score/total are taken **from the DB, never from the client**. Rejections return `"invalid_option"` or `"incomplete"`. This is the guard against malformed/auto/tampered submissions.
 - Student page shows a stronger confirmation when every dimension is set to its max option (guards against accidental all-max).
 
+### Template Download / Upload API
+
+- `GET /api/templates/{id}/download` — downloads a template as a **simplified JSON** file: only `name` + `criteria` array, no `id`/`sort_order`/dates. Empty `description` fields are omitted. Options use `label` + `score` keys.
+- `POST /api/templates/upload` (admin) — accepts simplified JSON with `name` + `criteria`. Supports both `dimensionLabel`/`optionLabel` and plain `label` keys. IDs and sort orders are auto-generated. Empty descriptions are stripped.
+- Frontend (评分模板 tab) has:
+  - **📥 下载** button per template row
+  - **📤 文件导入** — select `.json` file
+  - **📋 粘贴导入** — textarea with placeholder + copy-demo button
+  - Format hint bar explaining auto-generated fields
+
 ### Results & Export
 
 - Results are **scoped to one class AND its current scoring standard**. The 成绩汇总 page has its own class selector (`resultsClassSelect`), defaulting to current class → server `active_class` → first class. Switching it reloads results and retargets the export link.

@@ -1,7 +1,7 @@
 services:
   evaluation:
     build: .
-    image: evaluation-form
+    image: evaluation-form:latest
     container_name: evaluation_form
     ports:
       - "8888:8888"          # 宿主:容器；改端口时两处一起改
@@ -21,3 +21,9 @@ services:
       # - EVAL_MYSQL_PASSWORD=你的密码
       # - EVAL_MYSQL_DB=evaluation
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8888/api/admin/check')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3

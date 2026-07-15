@@ -2,6 +2,7 @@
 
 import socket
 from contextlib import closing
+from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, Form, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
@@ -306,6 +307,95 @@ async def api_delete_template(template_id: int, request: Request):
     try:
         d.delete_template(template_id)
         return {"ok": True}
+    finally:
+        d.close()
+
+
+# ============================================================
+# 模板下载 / 上传 API
+# ============================================================
+
+@app.get("/api/templates/{template_id}/download")
+async def api_download_template(template_id: int):
+    """下载模板为标准 JSON 文件（精简格式：无 id / 无日期，空 description 不传）"""
+    import json
+    d = get_db_conn()
+    try:
+        raw = d.load_template(template_id)
+        if not raw:
+            return JSONResponse({"ok": False, "error": "模板不存在"}, status_code=404)
+        # 先查名称
+        conn = d._get()
+        cur = conn.execute("SELECT name FROM criteria_templates WHERE id = ?", (template_id,))
+        row = cur.fetchone()
+        tpl_name = row["name"] if row else f"模板_{template_id}"
+    finally:
+        d.close()
+
+    # 精简格式：去掉 id、sort_order，去掉空 description
+    criteria = []
+    for cr in raw:
+        opts = []
+        for opt in cr.get("options", []):
+            o = {"label": opt.get("label", ""), "score": opt.get("score", 0)}
+            desc = opt.get("description", "")
+            if desc:
+                o["description"] = desc
+            opts.append(o)
+        criteria.append({"label": cr.get("label", ""), "options": opts})
+
+    payload = {"name": tpl_name, "criteria": criteria}
+    body = json.dumps(payload, ensure_ascii=False).encode()
+    safe_filename = "".join(c if ord(c) < 128 else "_" for c in tpl_name)
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename={safe_filename}.json; filename*=UTF-8''{quote(tpl_name)}.json"},
+    )
+
+
+@app.post("/api/templates/upload")
+async def api_upload_template(request: Request):
+    """从 JSON 上传模板（需登录）。id / sort_order 自动生成。"""
+    user = await auth.get_logged_in_user(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "未登录"}, status_code=401)
+    data = await request.json()
+    name = (data.get("name", "") or "").strip()
+    raw = data.get("criteria", [])
+    if not name:
+        return JSONResponse({"ok": False, "error": "缺少模板名称"})
+    if not isinstance(raw, list) or not len(raw):
+        return JSONResponse({"ok": False, "error": "缺少评分维度"})
+
+    # 规整化：支持 dimensionLabel / label 两种键名，顺序由列表位置决定；score 默认从小到大
+    criteria = []
+    for ci, cr in enumerate(raw):
+        label = ((cr.get("dimensionLabel") or cr.get("label") or "")).strip()
+        if not label:
+            return JSONResponse({"ok": False, "error": "所有维度必须填写名称"})
+        opts = []
+        for oi, opt in enumerate(cr.get("options", [])):
+            olabel = ((opt.get("optionLabel") or opt.get("label") or "")).strip()
+            if not olabel:
+                return JSONResponse({"ok": False, "error": "等级选项不能为空"})
+            sc = opt.get("score")
+            if sc is None:
+                sc = oi + 1
+            opts.append({
+                "label": olabel,
+                "description": opt.get("description", ""),
+                "score": int(sc),
+            })
+        criteria.append({
+            "label": label,
+            "options": opts,
+        })
+
+    d = get_db_conn()
+    try:
+        new_id = d.save_template(name, criteria)
+        return {"ok": True, "id": new_id}
     finally:
         d.close()
 

@@ -1,18 +1,30 @@
-FROM python:3.12-slim
+# ============================================================
+# 构建阶段（利用缓存：先装依赖再拷代码）
+# ============================================================
+FROM python:3.12-slim AS base
 
 WORKDIR /app
 
-# 先装依赖以利用构建缓存；额外装 pymysql，方便按需切换到 MySQL
+# 安装系统依赖 + Python 依赖（利用 Docker 层缓存）
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt pymysql
+RUN pip install --no-cache-dir -r requirements.txt pymysql \
+ && rm requirements.txt
 
-# 拷贝应用代码（数据文件由 .dockerignore 排除，不打进镜像）
+# 拷贝应用代码
 COPY . .
 
-# 数据（SQLite 库 + 会话文件）统一落到挂载卷，容器重建/升级都不丢
+# 以非 root 用户运行，提高安全性
+RUN useradd --create-home appuser && chown -R appuser:appuser /app
+USER appuser
+
+# 数据目录（挂载卷）
 ENV EVAL_DATA_DIR=/data
 VOLUME ["/data"]
 
 EXPOSE 8888
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8888/api/admin/check')" || exit 1
 
 CMD ["python", "main.py"]
